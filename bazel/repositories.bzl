@@ -1184,6 +1184,14 @@ def _proxy_wasm_cpp_host():
         # The permanent fix is https://github.com/proxy-wasm/proxy-wasm-cpp-host/pull/198
         # dcillera TODO: commented out as it doesn't fit at all into the library files
         # patches = ["@envoy//bazel/external:proxy-wasm-cpp-host-s390x-support.patch"],
+
+        build_file = "@envoy//bazel/external:proxy_wasm_cpp_host.BUILD",
+        # The patch fixes WASM on s390x https://issues.redhat.com/browse/MAISTRA-2648
+        # The permanent fix is https://github.com/proxy-wasm/proxy-wasm-cpp-host/pull/198
+        # dcillera TODO: commented out as it doesn't fit at all into the library files
+        #patches = ["@envoy//bazel/external:proxy_wasm_s390x.patch"],
+        #patch_args = ["-p1"],
+    )
         ],
     )
 
