@@ -1004,6 +1004,16 @@ def _v8():
         name = "v8",
         patches = ["@envoy//bazel:v8.patch"],
         patch_args = ["-p1"],
+    # dcillera TODO - Commented out as this library is no more present
+    # def _com_googlesource_chromium_v8():
+    # external_genrule_repository(
+        # name = "com_googlesource_chromium_v8",
+        # genrule_cmd_file = "@envoy//bazel/external:wee8.genrule_cmd",
+        # build_file = "@envoy//bazel/external:wee8.BUILD",
+        # patches = [
+        #     "@envoy//bazel/external:wee8.patch",
+        #     "@envoy//bazel/external:wee8-s390x.patch",
+        # ],
     )
     native.bind(
         name = "wee8",
@@ -1185,13 +1195,12 @@ def _proxy_wasm_cpp_host():
         # dcillera TODO: commented out as it doesn't fit at all into the library files
         # patches = ["@envoy//bazel/external:proxy-wasm-cpp-host-s390x-support.patch"],
 
-        build_file = "@envoy//bazel/external:proxy_wasm_cpp_host.BUILD",
+        # build_file = "@envoy//bazel/external:proxy_wasm_cpp_host.BUILD",
         # The patch fixes WASM on s390x https://issues.redhat.com/browse/MAISTRA-2648
         # The permanent fix is https://github.com/proxy-wasm/proxy-wasm-cpp-host/pull/198
         # dcillera TODO: commented out as it doesn't fit at all into the library files
         #patches = ["@envoy//bazel/external:proxy_wasm_s390x.patch"],
         #patch_args = ["-p1"],
-    )
         ],
     )
 
