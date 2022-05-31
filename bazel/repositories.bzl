@@ -640,6 +640,37 @@ def _com_google_cel_cpp():
         patches = ["@envoy//bazel:cel-cpp.patch"],
         patch_args = ["-p1"],
     )
+#  dcillera TODO - Commented out because rules_antlr and antlr4_runtimes libraries
+#  are NOT present in next versions 2.4 and 2.5.
+#  Probably not necessary because antlr_runtimes library has been INTENTIONALLY removed 
+#  by f852b32ed15f8a03c6e47a582dc89671dc45b425 commit
+#  
+#     # Parser dependencies
+#     # TODO: upgrade this when cel is upgraded to use the latest version
+#     external_http_archive(name = "rules_antlr")
+#     external_http_archive(
+#         name = "antlr4_runtimes",
+#         build_file_content = """
+# package(default_visibility = ["//visibility:public"])
+# cc_library(
+#     name = "cpp",
+#     srcs = glob(["runtime/Cpp/runtime/src/**/*.cpp"]),
+#     hdrs = glob(["runtime/Cpp/runtime/src/**/*.h"]),
+#     includes = ["runtime/Cpp/runtime/src"],
+# )
+# """,
+#         patch_args = ["-p1"],
+#         # Patches ASAN violation of initialization fiasco
+#         patches = [
+#             "@envoy//bazel:antlr.patch",
+#             # antlr_s390x_ossm_1526.patch is a temporary workaround for antlr4 crash problem on s390x
+#             # https://issues.redhat.com/browse/OSSM-1526
+#             # https://github.com/antlr/antlr4/issues/3728
+#             "@envoy//bazel:antlr_s390x_ossm_1526.patch"
+#         ],
+#     )
+
+
 
 def _com_github_google_perfetto():
     external_http_archive(
