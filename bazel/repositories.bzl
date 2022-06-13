@@ -1035,7 +1035,12 @@ def _v8():
         name = "v8",
         patches = ["@envoy//bazel:v8.patch"],
         patch_args = ["-p1"],
-    # dcillera TODO - Commented out as this library is no more present
+    # dcillera TODO - NOTE THAT the library has changed name:
+    # from "com_googlesource_chromium_v8" in 2.2 to "v8" in 2.5
+    # It seems that the patches are necessary  
+    # (example: "if (v8_current_cpu == "s390x")")
+    # but don't fit anymore.
+    #
     # def _com_googlesource_chromium_v8():
     # external_genrule_repository(
         # name = "com_googlesource_chromium_v8",
@@ -1043,7 +1048,7 @@ def _v8():
         # build_file = "@envoy//bazel/external:wee8.BUILD",
         # patches = [
         #     "@envoy//bazel/external:wee8.patch",
-        #     "@envoy//bazel/external:wee8-s390x.patch",
+        #     "@envoy//bazel/external:wee8-s390x-ppc64.patch",
         # ],
     )
     native.bind(
@@ -1459,7 +1464,7 @@ def _is_arch(ctxt, arch):
     return arch in res.stdout
 
 def _is_linux_ppc(ctxt):
-    return _is_linux(ctxt) and _is_arch(ctxt, "ppc")
+    return _is_linux(ctxt) and _is_arch(ctxt, "ppc64le")
 
 def _is_linux_s390x(ctxt):
     return _is_linux(ctxt) and _is_arch(ctxt, "s390x")

@@ -544,7 +544,7 @@ config_setting(
 
 config_setting(
     name = "linux_ppc",
-    values = {"cpu": "ppc"},
+    values = {"cpu": "ppc64"},
 )
 
 config_setting(
