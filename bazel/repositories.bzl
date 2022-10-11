@@ -215,6 +215,7 @@ def envoy_dependencies(skip_targets = []):
     _proxy_wasm_cpp_sdk()
     _proxy_wasm_cpp_host()
     _emsdk()
+    _acorn()
     _rules_fuzzing()
     external_http_archive("proxy_wasm_rust_sdk")
     _com_google_cel_cpp()
@@ -1048,6 +1049,9 @@ def _proxy_wasm_cpp_host():
 
 def _emsdk():
     external_http_archive(name = "emsdk")
+
+def _acorn():
+    external_http_archive(name = "acorn")
 
 def _com_github_google_jwt_verify():
     external_http_archive("com_github_google_jwt_verify")

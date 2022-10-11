@@ -1192,4 +1192,15 @@ REPOSITORY_LOCATIONS_SPEC = dict(
         release_date = "2022-03-02",
         cpe = "N/A",
     ),
+    acorn = dict(
+        project_name = "Acorn",
+        project_desc = "A tiny, fast JavaScript parser",
+        project_url = "https://github.com/acornjs/acorn",
+        version = "8.8.0",
+        sha256 = "4190ea3352e5badb61ce81f59db4b6e4db114396ad277bf91a464282fd8d6bee",
+        strip_prefix = "acorn-{version}",
+        urls = ["https://github.com/acornjs/acorn/archive/refs/tags/{version}.tar.gz"],
+        use_category = ["test_only"],
+        release_date = "2022-07-21",
+    ),
 )
