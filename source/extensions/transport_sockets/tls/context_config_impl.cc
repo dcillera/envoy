@@ -203,6 +203,18 @@ ContextConfigImpl::ContextConfigImpl(
       factory_context_(factory_context), tls_keylog_path_(config.key_log().path()),
       tls_keylog_local_(config.key_log().local_address_range()),
       tls_keylog_remote_(config.key_log().remote_address_range()) {
+
+  // OSSM-1816: check tls min/max version
+  if(min_protocol_version_ > max_protocol_version_) {
+    // set max to min and log a warning  
+    IS_ENVOY_BUG("tls version min higher than max");
+    max_protocol_version_ = min_protocol_version_;
+    // also ensure that min and max is not lower than the default in this case. 
+    if(min_protocol_version_ < default_min_protocol_version) {
+      IS_ENVOY_BUG("tls version min lower than default");
+      max_protocol_version_ = min_protocol_version_ = default_min_protocol_version;
+    }
+  }
   if (certificate_validation_context_provider_ != nullptr) {
     if (default_cvc_) {
       // We need to validate combined certificate validation context.

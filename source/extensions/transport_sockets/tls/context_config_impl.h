@@ -100,8 +100,8 @@ private:
   // Handle for certificate validation context dynamic secret callback.
   Envoy::Common::CallbackHandlePtr cvc_update_callback_handle_;
   Envoy::Common::CallbackHandlePtr cvc_validation_callback_handle_;
-  const unsigned min_protocol_version_;
-  const unsigned max_protocol_version_;
+  unsigned min_protocol_version_;
+  unsigned max_protocol_version_;
 
   Ssl::HandshakerFactoryCb handshaker_factory_cb_;
   Ssl::HandshakerCapabilities capabilities_;
