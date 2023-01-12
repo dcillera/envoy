@@ -4,7 +4,6 @@
 #include <memory>
 #include <string>
 #include <vector>
-
 #include "envoy/admin/v3/certs.pb.h"
 #include "envoy/common/exception.h"
 #include "envoy/common/platform.h"
@@ -751,6 +750,7 @@ ServerContextImpl::ServerContextImpl(Stats::Scope& scope,
     }
   }
 
+
   // this and the next call always succeed
   SSL_CTX_set_tlsext_status_cb(
       tls_context_.ssl_ctx_.get(), +[](SSL* ssl, void* arg) -> int {
@@ -979,21 +979,32 @@ OcspStapleAction ServerContextImpl::ocspStapleAction(const CertContext& cert_con
   PANIC_DUE_TO_CORRUPT_ENUM;
 }
 
+
 int ServerContextImpl::handleOcspStapling(SSL* ssl, void*) {
   const bool client_ocsp_capable = isClientOcspCapable(ssl);
-  // returns server cert selected for this connection
-  // see https://www.openssl.org/docs/man1.1.1/man3/SSL_set_tlsext_status_ocsp_resp.html
-  // for details
-  auto* selected_cert = SSL_get_certificate(ssl);
-  const auto& cert_context = certificateContext(selected_cert);
-  auto ocsp_staple_action = ocspStapleAction(cert_context, client_ocsp_capable);
+  
+  // Fix OSSM-2208 by looping on all certificates to find at least a good one
+  const CertContext* selected_cert_context = &tls_context_.cert_contexts_[0];
+  auto  ocsp_staple_action = ocspStapleAction(tls_context_.cert_contexts_[0], client_ocsp_capable);   
+  SSL_CTX_set_current_cert(tls_context_.ssl_ctx_.get(), SSL_CERT_SET_FIRST);
+  for(const auto& cert_context : tls_context_.cert_contexts_) {
+      auto action = ocspStapleAction(cert_context, client_ocsp_capable);
+      
+      if (action == OcspStapleAction::Fail) {
+          SSL_CTX_set_current_cert(tls_context_.ssl_ctx_.get(), SSL_CERT_SET_NEXT);
+          continue;
+      }
+      selected_cert_context = &cert_context;
+      ocsp_staple_action = action;
+      break;
+  }
 
   switch (ocsp_staple_action) {
   case OcspStapleAction::Staple: {
     // We avoid setting the OCSP response if the client didn't request it, but doing so is safe.
-    RELEASE_ASSERT(cert_context.ocsp_response_,
+    RELEASE_ASSERT(selected_cert_context->ocsp_response_,
                    "OCSP response must be present under OcspStapleAction::Staple");
-    const std::vector<uint8_t>& raw_bytes = cert_context.ocsp_response_->rawBytes();
+    const std::vector<uint8_t>& raw_bytes = selected_cert_context->ocsp_response_->rawBytes();
     const std::size_t raw_bytes_size = raw_bytes.size();
     unsigned char* raw_bytes_copy = static_cast<unsigned char *>(OPENSSL_memdup(raw_bytes.data(), raw_bytes_size));
     if (raw_bytes_copy == nullptr) { 
@@ -1015,9 +1026,9 @@ int ServerContextImpl::handleOcspStapling(SSL* ssl, void*) {
   case OcspStapleAction::ClientNotCapable:
     return SSL_TLSEXT_ERR_NOACK;
   }
-
   return SSL_TLSEXT_ERR_OK;
 }
+
 
 bool ContextImpl::verifyCertChain(X509& leaf_cert, STACK_OF(X509) & intermediates,
                                   std::string& error_details) {
