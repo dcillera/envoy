@@ -29,6 +29,13 @@ new_local_repository(
     build_file = "openssl.BUILD",
     path = "/usr/lib64/",
 )
+
+new_local_repository(
+    name = "abseil",
+    build_file = "absl.BUILD",
+    path = "/usr/lib64/",
+)
+
 new_local_repository(
     name = "emscripten_toolchain",
     path = "/opt/emsdk/",

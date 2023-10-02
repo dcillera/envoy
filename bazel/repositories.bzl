@@ -228,6 +228,8 @@ def envoy_dependencies(skip_targets = []):
     _com_github_nlohmann_json()
     _com_github_ncopa_suexec()
     _com_google_absl()
+    _com_google_absl_components()
+    _absl_includes()
     _com_google_googletest()
     _com_google_protobuf()
     _io_opencensus_cpp()
@@ -703,6 +705,20 @@ def _com_google_googletest():
 # the direct Bazel path at all sites.  This will make it easier to
 # pull in more bits of abseil as needed, and is now the preferred
 # method for pure Bazel deps.
+def _absl_includes():
+    external_http_archive(
+        name = "com_google_absl",
+        build_file = "@envoy//bazel/external:absl_includes.BUILD",
+        patches = [
+            "@envoy//bazel/external:abseil.patch",
+        ],
+        patch_args = ["-p1"],
+    )
+    native.bind(
+        name = "absl_includes_lib",
+        actual = "@com_google_absl//:absl_includes_lib",
+    )
+
 def _com_google_absl():
     external_http_archive(
         name = "com_google_absl",
@@ -710,108 +726,114 @@ def _com_google_absl():
         patch_args = ["-p1"],
     )
     native.bind(
+        name = "absl",
+        actual = "@abseil//:absl-lib",
+    )
+
+def _com_google_absl_components():
+    native.bind(
         name = "abseil_any",
-        actual = "@com_google_absl//absl/types:any",
+        actual = "//external:absl",
     )
     native.bind(
         name = "abseil_base",
-        actual = "@com_google_absl//absl/base:base",
+        actual = "//external:absl",
+ #       actual = "@com_google_absl//absl/base:base",
     )
-
     # Bind for grpc.
     native.bind(
         name = "absl-base",
-        actual = "@com_google_absl//absl/base",
+        actual = "//external:absl",
     )
     native.bind(
         name = "abseil_flat_hash_map",
-        actual = "@com_google_absl//absl/container:flat_hash_map",
+        actual = "//external:absl",
     )
     native.bind(
         name = "abseil_flat_hash_set",
-        actual = "@com_google_absl//absl/container:flat_hash_set",
+        actual = "//external:absl",
     )
     native.bind(
         name = "abseil_hash",
-        actual = "@com_google_absl//absl/hash:hash",
+        actual = "//external:absl",
     )
     native.bind(
         name = "abseil_hash_testing",
-        actual = "@com_google_absl//absl/hash:hash_testing",
+        actual = "//external:absl",
     )
     native.bind(
         name = "abseil_inlined_vector",
-        actual = "@com_google_absl//absl/container:inlined_vector",
+        actual = "//external:absl",
     )
     native.bind(
         name = "abseil_memory",
-        actual = "@com_google_absl//absl/memory:memory",
+        actual = "//external:absl",
     )
     native.bind(
         name = "abseil_node_hash_map",
-        actual = "@com_google_absl//absl/container:node_hash_map",
+        actual = "//external:absl",
     )
     native.bind(
         name = "abseil_node_hash_set",
-        actual = "@com_google_absl//absl/container:node_hash_set",
+        actual = "//external:absl",
     )
     native.bind(
         name = "abseil_str_format",
-        actual = "@com_google_absl//absl/strings:str_format",
+        actual = "//external:absl",
     )
     native.bind(
         name = "abseil_strings",
-        actual = "@com_google_absl//absl/strings:strings",
+        actual = "//external:absl",
     )
     native.bind(
         name = "abseil_int128",
-        actual = "@com_google_absl//absl/numeric:int128",
+        actual = "//external:absl",
     )
     native.bind(
         name = "abseil_optional",
-        actual = "@com_google_absl//absl/types:optional",
+        actual = "//external:absl",
     )
     native.bind(
         name = "abseil_synchronization",
-        actual = "@com_google_absl//absl/synchronization:synchronization",
+        actual = "//external:absl",
     )
     native.bind(
         name = "abseil_symbolize",
-        actual = "@com_google_absl//absl/debugging:symbolize",
+        actual = "//external:absl",
     )
     native.bind(
         name = "abseil_stacktrace",
-        actual = "@com_google_absl//absl/debugging:stacktrace",
+        actual = "//external:absl",
     )
 
     # Require abseil_time as an indirect dependency as it is needed by the
     # direct dependency jwt_verify_lib.
     native.bind(
         name = "abseil_time",
-        actual = "@com_google_absl//absl/time:time",
+        actual = "//external:absl",
     )
 
     # Bind for grpc.
     native.bind(
         name = "absl-time",
-        actual = "@com_google_absl//absl/time:time",
+        actual = "//external:absl",
     )
 
     native.bind(
         name = "abseil_algorithm",
-        actual = "@com_google_absl//absl/algorithm:algorithm",
+        actual = "//external:absl",
     )
     native.bind(
         name = "abseil_variant",
-        actual = "@com_google_absl//absl/types:variant",
+        actual = "//external:absl",
     )
     native.bind(
         name = "abseil_status",
-        actual = "@com_google_absl//absl/status",
+        actual = "//external:absl",
     )
     native.bind(
         name = "abseil_cleanup",
-        actual = "@com_google_absl//absl/cleanup:cleanup",
+        actual = "//external:absl",
     )
 
 def _com_google_protobuf():
