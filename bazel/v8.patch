@@ -3,31 +3,6 @@
 # 3. Add support for --define=no_debug_info=1.
 # 4. Don't expose Wasm C API (only Wasm C++ API).
 
-diff --git a/BUILD.bazel b/BUILD.bazel
-index 4e89f90e7e..ced403d5aa 100644
---- a/BUILD.bazel
-+++ b/BUILD.bazel
-@@ -4,7 +4,7 @@
- 
- load("@bazel_skylib//lib:selects.bzl", "selects")
- load("@rules_python//python:defs.bzl", "py_binary")
--load("@v8_python_deps//:requirements.bzl", "requirement")
-+load("@base_pip3//:requirements.bzl", "requirement")
- load(
-     "@v8//:bazel/defs.bzl",
-     "v8_binary",
-diff --git a/BUILD.bazel b/BUILD.bazel
-index 4e89f90e7e..3fcb38b3f3 100644
---- a/BUILD.bazel
-+++ b/BUILD.bazel
-@@ -157,7 +157,7 @@ v8_int(
- # If no explicit value for v8_enable_pointer_compression, we set it to 'none'.
- v8_string(
-     name = "v8_enable_pointer_compression",
--    default = "none",
-+    default = "False",
- )
- 
  # Default setting for v8_enable_pointer_compression.
 diff --git a/bazel/defs.bzl b/bazel/defs.bzl
 index e957c0fad3..eee285ab60 100644

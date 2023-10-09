@@ -193,6 +193,10 @@ def envoy_dependencies(skip_targets = []):
     _openssl_includes()
     _com_github_maistra_bssl_wrapper()
 
+    # EXTERNAL V8
+    _v8()
+    _v8_includes()
+
     # The long repo names (`com_github_fmtlib_fmt` instead of `fmtlib`) are
     # semi-standard in the Bazel community, intended to avoid both duplicate
     # dependencies and name conflicts.
@@ -235,7 +239,6 @@ def envoy_dependencies(skip_targets = []):
     _io_opencensus_cpp()
     _com_github_curl()
     _com_github_envoyproxy_sqlparser()
-    _v8()
     _com_googlesource_chromium_base_trace_event_common()
     _com_github_google_quiche()
     _com_googlesource_googleurl()
@@ -948,14 +951,29 @@ cc_library(name = "curl", visibility = ["//visibility:public"], deps = ["@envoy/
     )
 
 def _v8():
+#    external_http_archive(
+#        name = "v8",
+#        patches = ["@envoy//bazel:v8.patch"],
+#        patch_args = ["-p1"],
+#   )
+    native.bind(
+        name = "wee8",
+        actual = "@wee8_lib//:v8_so_lib",
+ #       actual = "@v8//:wee8",
+    )
+
+def _v8_includes():
     external_http_archive(
         name = "v8",
-        patches = ["@envoy//bazel:v8.patch"],
+        build_file = "@envoy//bazel/external:v8_includes.BUILD",
+        patches = [
+            "@envoy//bazel:v8.patch",
+        ],
         patch_args = ["-p1"],
     )
     native.bind(
-        name = "wee8",
-        actual = "@v8//:wee8",
+        name = "wee8_lib_includes_lib",
+        actual = "@v8//:wee8_lib_includes_lib",
     )
 
 def _com_googlesource_chromium_base_trace_event_common():
@@ -1114,6 +1132,7 @@ def _proxy_wasm_cpp_host():
             "@envoy//bazel:proxy_wasm_cpp_host.patch",
         ],
     )
+    
 
 def _emsdk():
     external_http_archive(

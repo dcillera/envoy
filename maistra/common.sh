@@ -15,6 +15,9 @@ export ARCH
 COMMON_FLAGS="\
     --config=${ARCH} \
     --define crypto=system \
+    --copt=-DV8_ENABLE_WEBASSEMBLY=1 \
+    --linkopt=-l:libwee8.so \
+    --linkopt=-v \
 "
 if [ -n "${CI}" ]; then
   COMMON_FLAGS+=" --config=ci-config " 

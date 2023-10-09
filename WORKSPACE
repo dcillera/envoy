@@ -37,6 +37,12 @@ new_local_repository(
 )
 
 new_local_repository(
+    name = "wee8_lib",
+    build_file = "v8.BUILD",
+    path = "/usr/lib64/",
+)
+
+new_local_repository(
     name = "emscripten_toolchain",
     path = "/opt/emsdk/",
     build_file_content = BUILD_ALL_CONTENT,

@@ -32,6 +32,9 @@ envoy_cc_binary(
 
 envoy_cc_library(
     name = "envoy_common_lib",
+    external_deps = [
+        "wee8_lib_includes_lib",
+    ],
     deps = [
         "//source/common/event:libevent_lib",
         "//source/common/network:utility_lib",
