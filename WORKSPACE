@@ -42,6 +42,13 @@ new_local_repository(
     path = "/usr/lib64/",
 )
 
+# V8 library built in proxy-wasm-cpp-host
+new_local_repository(
+    name = "v8_lib",
+    build_file = "v8_lib.BUILD",
+    path = "/usr/lib64/",
+)
+
 new_local_repository(
     name = "emscripten_toolchain",
     path = "/opt/emsdk/",

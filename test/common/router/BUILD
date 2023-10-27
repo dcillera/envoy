@@ -228,6 +228,7 @@ envoy_proto_library(
 envoy_cc_test_binary(
     name = "config_impl_test_static",
     deps = [
+        "@proxy_wasm_cpp_host//:base_lib",
         ":config_impl_test_lib",
         "//test:main",
     ],

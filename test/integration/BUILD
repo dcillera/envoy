@@ -296,6 +296,7 @@ envoy_cc_test_binary(
     deps = [
         "//source/exe:envoy_main_common_with_core_extensions_lib",
         "//source/exe:platform_impl_lib",
+        "@proxy_wasm_cpp_host//:base_lib",
     ],
 )
 

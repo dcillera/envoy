@@ -256,6 +256,7 @@ def envoy_dependencies(skip_targets = []):
     _upb()
     _proxy_wasm_cpp_sdk()
     _proxy_wasm_cpp_host()
+    _proxy_wasm_cpp_host_includes()
     _emsdk()
     _rules_fuzzing()
     external_http_archive("proxy_wasm_rust_sdk")
@@ -951,15 +952,9 @@ cc_library(name = "curl", visibility = ["//visibility:public"], deps = ["@envoy/
     )
 
 def _v8():
-#    external_http_archive(
-#        name = "v8",
-#        patches = ["@envoy//bazel:v8.patch"],
-#        patch_args = ["-p1"],
-#   )
     native.bind(
         name = "wee8",
         actual = "@wee8_lib//:v8_so_lib",
- #       actual = "@v8//:wee8",
     )
 
 def _v8_includes():
@@ -1131,8 +1126,20 @@ def _proxy_wasm_cpp_host():
         patches = [
             "@envoy//bazel:proxy_wasm_cpp_host.patch",
         ],
+    ) 
+
+def _proxy_wasm_cpp_host_includes():
+    external_http_archive(
+        name = "proxy_wasm_cpp_host",
+        build_file = "@envoy//bazel/external:proxy_wasm_cpp_host_includes.BUILD",
+        patches = [
+            "@envoy//bazel:proxy_wasm_cpp_host.patch",
+        ],
     )
-    
+    native.bind(
+        name = "proxy_wasm_cpp_host_includes_lib",
+        actual = "@proxy_wasm_cpp_host//:proxy_wasm_cpp_host_includes_lib",
+    )    
 
 def _emsdk():
     external_http_archive(

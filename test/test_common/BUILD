@@ -153,6 +153,7 @@ envoy_cc_test_library(
         "@envoy_api//envoy/service/runtime/v3:pkg_cc_proto",
         "@envoy_api//envoy/type/matcher/v3:pkg_cc_proto",
         "@envoy_api//envoy/type/v3:pkg_cc_proto",
+        "@proxy_wasm_cpp_host//:base_lib",
     ],
 )
 

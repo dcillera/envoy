@@ -11,7 +11,10 @@ envoy_package()
 
 envoy_cc_binary(
     name = "wee8_compile_tool",
-    deps = [":wee8_compile_lib"],
+    deps = [
+        ":wee8_compile_lib",
+        "@proxy_wasm_cpp_host//:base_lib",
+        ],
 )
 
 envoy_cc_library(
@@ -22,5 +25,8 @@ envoy_cc_library(
         "-Wno-non-virtual-dtor",
         "-Wno-unused-parameter",
     ],
-    external_deps = ["wee8"],
+    external_deps = [
+        "wee8",
+        "wee8_lib_includes_lib",
+        ],
 )
