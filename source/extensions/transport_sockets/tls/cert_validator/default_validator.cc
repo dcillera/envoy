@@ -56,7 +56,6 @@ int DefaultCertValidator::initializeSslContexts(std::vector<SSL_CTX*> contexts,
 
   int verify_mode = SSL_VERIFY_NONE;
   int verify_mode_validation_context = SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
-
   if (config_ != nullptr) {
     envoy::extensions::transport_sockets::tls::v3::CertificateValidationContext::
         TrustChainVerification verification = config_->trustChainVerification();
@@ -83,9 +82,10 @@ int DefaultCertValidator::initializeSslContexts(std::vector<SSL_CTX*> contexts,
 
     for (auto& ctx : contexts) {
       X509_STORE* store = SSL_CTX_get_cert_store(ctx);
-      // TODO: dcillera - this causes RevokedIntermediateCertificate to fail with OpenSSL
+      bool crl_ckeck_flag=false, crl_check_all_flag=false, partial_chain_flag=false;
       if (Runtime::runtimeFeatureEnabled("envoy.reloadable_features.enable_intermediate_ca")) {
         X509_STORE_set_flags(store, X509_V_FLAG_PARTIAL_CHAIN);
+        partial_chain_flag = true;
       }
       bool has_crl = false;
       for (const X509_INFO* item : list.get()) {
@@ -109,6 +109,18 @@ int DefaultCertValidator::initializeSslContexts(std::vector<SSL_CTX*> contexts,
         X509_STORE_set_flags(store, config_->onlyVerifyLeafCertificateCrl()
                                         ? X509_V_FLAG_CRL_CHECK
                                         : X509_V_FLAG_CRL_CHECK | X509_V_FLAG_CRL_CHECK_ALL);
+        if(config_->onlyVerifyLeafCertificateCrl()) {
+          crl_ckeck_flag = true;
+        }
+        else {
+          crl_ckeck_flag = true;
+          crl_check_all_flag = true;
+        }
+        if(crl_ckeck_flag && crl_check_all_flag && partial_chain_flag)
+        {
+           throw EnvoyException("Unsupported: intermediate certification authority feature "
+                                "has been enabled along with crl checks");
+        }
       }
       verify_mode = SSL_VERIFY_PEER;
       verify_trusted_ca_ = true;
@@ -135,18 +147,35 @@ int DefaultCertValidator::initializeSslContexts(std::vector<SSL_CTX*> contexts,
 
     for (auto& ctx : contexts) {
       X509_STORE* store = SSL_CTX_get_cert_store(ctx);
-      // TODO: dcillera - this causes RevokedIntermediateCertificate to fail with OpenSSL
+      bool crl_ckeck_flag=false, crl_check_all_flag=false, partial_chain_flag=false;
        if (Runtime::runtimeFeatureEnabled("envoy.reloadable_features.enable_intermediate_ca")) {
          X509_STORE_set_flags(store, X509_V_FLAG_PARTIAL_CHAIN);
+         partial_chain_flag = true;
        }
+      bool has_crl = false;
       for (const X509_INFO* item : list.get()) {
         if (item->crl) {
           X509_STORE_add_crl(store, item->crl);
+          has_crl = true;
         }
       }
       X509_STORE_set_flags(store, config_->onlyVerifyLeafCertificateCrl()
                                       ? X509_V_FLAG_CRL_CHECK
                                       : X509_V_FLAG_CRL_CHECK | X509_V_FLAG_CRL_CHECK_ALL);
+      if(config_->onlyVerifyLeafCertificateCrl()) {
+        crl_ckeck_flag = true;
+      }
+      else {
+        crl_ckeck_flag = true;
+        crl_check_all_flag = true;
+      }
+      if (has_crl) {
+        if(crl_ckeck_flag && crl_check_all_flag && partial_chain_flag)
+        {
+           throw EnvoyException("Unsupported: intermediate certification authority feature "
+                                "has been enabled along with crl checks");
+        }
+      }
     }
   }
 

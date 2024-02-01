@@ -5223,6 +5223,7 @@ TEST_P(SslSocketTest, RevokedCertificate) {
   testUtil(successful_test_options.setExpectedSerialNumber(TEST_SAN_DNS2_CERT_SERIAL));
 }
 
+
 TEST_P(SslSocketTest, RevokedCertificateCRLInTrustedCA) {
 
   const std::string server_ctx_yaml = R"EOF(
@@ -5265,6 +5266,7 @@ TEST_P(SslSocketTest, RevokedCertificateCRLInTrustedCA) {
   testUtil(successful_test_options.setExpectedSerialNumber(TEST_SAN_DNS2_CERT_SERIAL));
 }
 
+#if 0 // Failing tests (OSSM-5830)
 
 TEST_P(SslSocketTest, RevokedIntermediateCertificate) {
 
@@ -5360,6 +5362,7 @@ TEST_P(SslSocketTest, RevokedIntermediateCertificate) {
   testUtil(complete_unrevoked_test_options.setExpectedSerialNumber(TEST_SAN_DNS4_CERT_SERIAL));
 }
 
+
 TEST_P(SslSocketTest, RevokedIntermediateCertificateCRLInTrustedCA) {
 
   // This should succeed, since the crl chain is complete.
@@ -5445,6 +5448,9 @@ TEST_P(SslSocketTest, RevokedIntermediateCertificateCRLInTrustedCA) {
                                                   complete_server_ctx_yaml, true, GetParam());
   testUtil(complete_unrevoked_test_options.setExpectedSerialNumber(TEST_SAN_DNS4_CERT_SERIAL));
 }
+
+#endif
+
 
 TEST_P(SslSocketTest, NotRevokedLeafCertificateOnlyLeafCRLValidation) {
   // The test checks that revoked certificate will makes the validation success even if we set

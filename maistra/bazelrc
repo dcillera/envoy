@@ -2,6 +2,8 @@
 
 # FIXME: https://issues.redhat.com/browse/OSSM-1201
 build --cxxopt -w
+build --cxxopt -g
+build --copt -g
 
 build --copt -DOPENSSL_IS_BORINGSSL=0
 build --verbose_failures
