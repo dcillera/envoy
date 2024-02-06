@@ -114,7 +114,7 @@ int DefaultCertValidator::initializeSslContexts(std::vector<SSL_CTX*> contexts,
       verify_trusted_ca_ = true;
 
       if (config_->allowExpiredCertificate()) {
-        X509_STORE_set_verify_cb(store, CertValidatorUtil::ignoreCertificateExpirationCallback);
+        CertValidatorUtil::setIgnoreCertificateExpiration(store);
       }
     }
   }
@@ -213,20 +213,34 @@ int DefaultCertValidator::doSynchronousVerifyCertChain(
       return allow_untrusted_certificate_ ? 1 : ret;
     }
   }
+  Envoy::Ssl::ClientValidationStatus detailed_status =
+      Envoy::Ssl::ClientValidationStatus::NotValidated;
+  bool success = verifyCertAndUpdateStatus(&leaf_cert, transport_socket_options, detailed_status,
+                                           nullptr, nullptr);
+  if (ssl_extended_info) {
+    ssl_extended_info->setCertificateValidationStatus(detailed_status);
+  }
+  if (!success) {
+    X509_STORE_CTX_set_error(store_ctx, X509_V_ERR_APPLICATION_VERIFICATION);
+    return 0;
+  }
+  return 1;
+}
+
+bool DefaultCertValidator::verifyCertAndUpdateStatus(
+    X509* leaf_cert, const Network::TransportSocketOptions* transport_socket_options,
+    Envoy::Ssl::ClientValidationStatus& detailed_status, std::string* error_details,
+    uint8_t* out_alert) {
   Envoy::Ssl::ClientValidationStatus validated =
-      verifyCertificate(&leaf_cert,
+      verifyCertificate(leaf_cert,
                         transport_socket_options != nullptr
                             ? transport_socket_options->verifySubjectAltNameListOverride()
                             : std::vector<std::string>{},
-                        subject_alt_name_matchers_);
+                        subject_alt_name_matchers_, error_details, out_alert);
 
-  if (ssl_extended_info) {
-    if (ssl_extended_info->certificateValidationStatus() ==
-        Envoy::Ssl::ClientValidationStatus::NotValidated) {
-      ssl_extended_info->setCertificateValidationStatus(validated);
-    } else if (validated != Envoy::Ssl::ClientValidationStatus::NotValidated) {
-      ssl_extended_info->setCertificateValidationStatus(validated);
-    }
+  if (detailed_status == Envoy::Ssl::ClientValidationStatus::NotValidated ||
+      validated != Envoy::Ssl::ClientValidationStatus::NotValidated) {
+    detailed_status = validated;
   }
 
   // If `trusted_ca` exists, it is already verified in the code above. Thus, we just need to make
@@ -237,16 +251,21 @@ int DefaultCertValidator::doSynchronousVerifyCertChain(
                            ? validated != Envoy::Ssl::ClientValidationStatus::Failed
                            : validated == Envoy::Ssl::ClientValidationStatus::Validated;
 
-  return (allow_untrusted_certificate_ || success) ? 1 : 0;
+  return (allow_untrusted_certificate_ || success);
 }
 
-Envoy::Ssl::ClientValidationStatus DefaultCertValidator::verifyCertificate(
-    X509* cert, const std::vector<std::string>& verify_san_list,
-    const std::vector<SanMatcherPtr>& subject_alt_name_matchers) {
+Envoy::Ssl::ClientValidationStatus
+DefaultCertValidator::verifyCertificate(X509* cert, const std::vector<std::string>& verify_san_list,
+                                        const std::vector<SanMatcherPtr>& subject_alt_name_matchers,
+                                        std::string* error_details, uint8_t* out_alert) {
   Envoy::Ssl::ClientValidationStatus validated = Envoy::Ssl::ClientValidationStatus::NotValidated;
-
   if (!verify_san_list.empty()) {
     if (!verifySubjectAltName(cert, verify_san_list)) {
+      const char* error = "verify cert failed: verify SAN list";
+      if (error_details != nullptr) {
+        *error_details = error;
+      }
+      ENVOY_LOG(debug, error);
       stats_.fail_verify_san_.inc();
       return Envoy::Ssl::ClientValidationStatus::Failed;
     }
@@ -255,6 +274,11 @@ Envoy::Ssl::ClientValidationStatus DefaultCertValidator::verifyCertificate(
 
   if (!subject_alt_name_matchers.empty()) {
     if (!matchSubjectAltName(cert, subject_alt_name_matchers)) {
+      const char* error = "verify cert failed: SAN matcher";
+      if (error_details != nullptr) {
+        *error_details = error;
+      }
+      ENVOY_LOG(debug, error);
       stats_.fail_verify_san_.inc();
       return Envoy::Ssl::ClientValidationStatus::Failed;
     }
@@ -270,6 +294,14 @@ Envoy::Ssl::ClientValidationStatus DefaultCertValidator::verifyCertificate(
         verifyCertificateSpkiList(cert, verify_certificate_spki_list_);
 
     if (!valid_certificate_hash && !valid_certificate_spki) {
+      if (out_alert != nullptr) {
+        *out_alert = SSL_AD_BAD_CERTIFICATE_HASH_VALUE;
+      }
+      const char* error = "verify cert failed: cert hash and spki";
+      if (error_details != nullptr) {
+        *error_details = error;
+      }
+      ENVOY_LOG(debug, error);
       stats_.fail_verify_cert_hash_.inc();
       return Envoy::Ssl::ClientValidationStatus::Failed;
     }
@@ -313,27 +345,6 @@ bool DefaultCertValidator::matchSubjectAltName(
       }
     }
   }
-  return false;
-}
-
-bool DefaultCertValidator::dnsNameMatch(const absl::string_view dns_name,
-                                        const absl::string_view pattern) {
-  const std::string lower_case_dns_name = absl::AsciiStrToLower(dns_name);
-  const std::string lower_case_pattern = absl::AsciiStrToLower(pattern);
-  if (lower_case_dns_name == lower_case_pattern) {
-    return true;
-  }
-
-  size_t pattern_len = lower_case_pattern.length();
-  if (pattern_len > 1 && lower_case_pattern[0] == '*' && lower_case_pattern[1] == '.') {
-    if (lower_case_dns_name.length() > pattern_len - 1) {
-      const size_t off = lower_case_dns_name.length() - pattern_len + 1;
-      return lower_case_dns_name.substr(0, off).find('.') == std::string::npos &&
-             lower_case_dns_name.substr(off, pattern_len - 1) ==
-                 lower_case_pattern.substr(1, pattern_len - 1);
-    }
-  }
-
   return false;
 }
 
@@ -453,9 +464,7 @@ void DefaultCertValidator::addClientValidationContext(SSL_CTX* ctx, bool require
   // Use a generic lambda to be compatible with BoringSSL before and after
   // https://boringssl-review.googlesource.com/c/boringssl/+/56190
   bssl::UniquePtr<STACK_OF(X509_NAME)> list(
-      sk_X509_NAME_new([](const X509_NAME* const* a, const X509_NAME* const* b) -> int {
-        return X509_NAME_cmp(*a, *b);
-      }));
+      sk_X509_NAME_new([](auto* a, auto* b) -> int { return X509_NAME_cmp(*a, *b); }));
   RELEASE_ASSERT(list != nullptr, "");
   for (;;) {
     bssl::UniquePtr<X509> cert(PEM_read_bio_X509(bio.get(), nullptr, nullptr, nullptr));
