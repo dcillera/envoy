@@ -118,7 +118,7 @@ int DefaultCertValidator::initializeSslContexts(std::vector<SSL_CTX*> contexts,
         }
         if(crl_ckeck_flag && crl_check_all_flag && partial_chain_flag)
         {
-           throw EnvoyException("Unsupported: intermediate certification authority feature "
+           ENVOY_LOG(warn, "Unsupported: intermediate certification authority feature "
                                 "has been enabled along with crl checks");
         }
       }
@@ -172,7 +172,7 @@ int DefaultCertValidator::initializeSslContexts(std::vector<SSL_CTX*> contexts,
       if (has_crl) {
         if(crl_ckeck_flag && crl_check_all_flag && partial_chain_flag)
         {
-           throw EnvoyException("Unsupported: intermediate certification authority feature "
+           ENVOY_LOG(warn, "Unsupported: intermediate certification authority feature "
                                 "has been enabled along with crl checks");
         }
       }
