@@ -294,6 +294,9 @@ STACK_OF(X509)* SSL_get_peer_full_cert_chain(const SSL* ssl) {
 }
 
 void allowRenegotiation(SSL*) {
+  // Refer to https://www.openssl.org/docs/man1.1.1/man3/SSL_get_secure_renegotiation_support.html
+  // "OpenSSL always attempts to use secure renegotiation as described in RFC5746.
+  // This counters the prefix attack described in CVE-2009-3555 and elsewhere."
   // SSL_set_renegotiate_mode(ssl, mode);
 }
 
