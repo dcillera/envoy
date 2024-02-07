@@ -1034,7 +1034,7 @@ int ServerContextImpl::sessionTicketProcess(SSL*, uint8_t* key_name, uint8_t* iv
 bool ServerContextImpl::isClientEcdsaCapable(const SSL* ssl) {
   // This is the TLSv1.3 case (TLSv1.2 on the wire and the supported_versions extensions present).
   // We just need to look at signature algorithms.
-  const uint16_t client_version = ssl->version;
+  const uint16_t client_version = SSL_client_hello_get0_legacy_version(const_cast<SSL*>(ssl));
   if (client_version == TLS1_2_VERSION && tls_max_version_ == TLS1_3_VERSION) {
     // If the supported_versions extension is found then we assume that the client is competent
     // enough that just checking the signature_algorithms is sufficient.
