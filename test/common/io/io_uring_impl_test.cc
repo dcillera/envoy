@@ -211,11 +211,10 @@ TEST_F(IoUringImplTest, PrepareReadvQueueOverflow) {
   res = uring.prepareReadv(fd, &iov3, 1, 4, reinterpret_cast<void*>(3));
   // Expect the submission queue overflow.
   EXPECT_EQ(res, IoUringResult::Failed);
-  res = uring.submit();
+  // Wait for the events completions
+  res = uring.submit_and_wait(2);
   EXPECT_EQ(res, IoUringResult::Ok);
 
-  // Even though we haven't been notified about ops completion the buffers
-  // are filled already.
   EXPECT_EQ(static_cast<char*>(iov1.iov_base)[0], 'a');
   EXPECT_EQ(static_cast<char*>(iov1.iov_base)[1], 'b');
   EXPECT_EQ(static_cast<char*>(iov2.iov_base)[0], 'c');
@@ -230,7 +229,8 @@ TEST_F(IoUringImplTest, PrepareReadvQueueOverflow) {
   // Check a new event gets handled in the next dispatcher run.
   res = uring.prepareReadv(fd, &iov3, 1, 4, reinterpret_cast<void*>(3));
   EXPECT_EQ(res, IoUringResult::Ok);
-  res = uring.submit();
+  // Wait for the event completion
+  res = uring.submit_and_wait(1);
   EXPECT_EQ(res, IoUringResult::Ok);
 
   EXPECT_EQ(static_cast<char*>(iov3.iov_base)[0], 'e');

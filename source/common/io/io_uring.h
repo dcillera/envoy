@@ -95,6 +95,8 @@ public:
    * with the forEveryCompletion() method and try again.
    */
   virtual IoUringResult submit() PURE;
+
+  virtual IoUringResult submit_and_wait(unsigned wait_nr) PURE;
 };
 
 /**

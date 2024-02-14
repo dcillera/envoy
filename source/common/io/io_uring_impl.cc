@@ -143,5 +143,11 @@ IoUringResult IoUringImpl::submit() {
   return res == -EBUSY ? IoUringResult::Busy : IoUringResult::Ok;
 }
 
+IoUringResult IoUringImpl::submit_and_wait(unsigned wait_nr) {
+  int res = io_uring_submit_and_wait(&ring_, wait_nr);
+  RELEASE_ASSERT(res >= 0 || res == -EBUSY, "unable to submit io_uring queue entries");
+  return res == -EBUSY ? IoUringResult::Busy : IoUringResult::Ok;
+}
+
 } // namespace Io
 } // namespace Envoy

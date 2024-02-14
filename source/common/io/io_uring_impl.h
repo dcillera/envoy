@@ -30,6 +30,7 @@ public:
                               off_t offset, void* user_data) override;
   IoUringResult prepareClose(os_fd_t fd, void* user_data) override;
   IoUringResult submit() override;
+  IoUringResult submit_and_wait(unsigned wait_nr) override;
 
 private:
   const uint32_t io_uring_size_;
