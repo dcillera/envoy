@@ -28,6 +28,7 @@ time bazel build \
   --build_tests_only \
   -- \
   //test/... \
+  -//test/server:guarddog_impl_test \
   -//test/extensions/listener_managers/listener_manager:listener_manager_impl_quic_only_test
 
 
@@ -39,4 +40,10 @@ time bazel test \
   //test/... \
   -//test/extensions/listener_managers/listener_manager:listener_manager_impl_quic_only_test
 
+time bazel test \
+  ${COMMON_FLAGS} \
+  --build_tests_only \
+  --flaky_test_attempts=5 \
+  //test/server:guarddog_impl_test
+  
 
