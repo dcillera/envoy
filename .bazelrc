@@ -24,12 +24,19 @@ build --platform_mappings=bazel/platform_mappings
 build --copt=-DABSL_MIN_LOG_LEVEL=4
 build --define envoy_mobile_listener=disabled
 build --experimental_repository_downloader_retries=2
+build --enable_platform_specific_config
 
-# Pass PATH, CC, CXX and LLVM_CONFIG variables from the environment.
+# Pass CC, CXX and LLVM_CONFIG variables from the environment.
+# We assume they have stable values, so this won't cause action cache misses.
 build --action_env=CC --host_action_env=CC
 build --action_env=CXX --host_action_env=CXX
 build --action_env=LLVM_CONFIG --host_action_env=LLVM_CONFIG
-build --action_env=PATH --host_action_env=PATH
+# Do not pass through PATH however.
+# It tends to have machine-specific values, such as dynamically created temp folders.
+# This would make it impossible to share remote action cache hits among machines.
+# build --action_env=PATH --host_action_env=PATH
+# To make our own CI green, we do need that flag on Windows though.
+build:windows --action_env=PATH --host_action_env=PATH
 
 # Allow stamped caches to bust when local filesystem changes.
 # Requires setting `BAZEL_VOLATILE_DIRTY` in the env.
@@ -39,7 +46,6 @@ build --action_env=BAZEL_VOLATILE_DIRTY --host_action_env=BAZEL_VOLATILE_DIRTY
 # Requires setting `BAZEL_FAKE_SCM_REVISION` in the env.
 build --action_env=BAZEL_FAKE_SCM_REVISION --host_action_env=BAZEL_FAKE_SCM_REVISION
 
-build --enable_platform_specific_config
 build --test_summary=terse
 
 build:docs-ci --action_env=DOCS_RST_CHECK=1 --host_action_env=DOCS_RST_CHECK=1
@@ -64,10 +70,6 @@ build:linux --features=per_object_debug_info
 build:linux --action_env=BAZEL_LINKLIBS=-l%:libstdc++.a
 build:linux --action_env=BAZEL_LINKOPTS=-lm
 
-# TODO(keith): remove once https://github.com/DataDog/dd-opentracing-cpp/pull/252 is integrated
-# this avoids warnings/errors on arm64 Linux builds
-build:linux --per_file_copt=external/com_github_datadog_dd_opentracing_cpp/.*.cpp@-Wno-type-limits
-
 # We already have absl in the build, define absl=1 to tell googletest to use absl for backtrace.
 build --define absl=1
 
@@ -80,6 +82,8 @@ build:sanitizer --linkopt -ldl
 
 # Common flags for Clang
 build:clang --action_env=BAZEL_COMPILER=clang
+build:clang --action_env=CC=clang --action_env=CXX=clang++
+build:clang --linkopt=-fuse-ld=lld
 
 # Flags for Clang + PCH
 build:clang-pch --spawn_strategy=local
@@ -87,6 +91,14 @@ build:clang-pch --define=ENVOY_CLANG_PCH=1
 
 # Use gold linker for gcc compiler.
 build:gcc --linkopt=-fuse-ld=gold
+
+# Clang-tidy
+# TODO(phlax): enable this, its throwing some errors as well as finding more issues
+# build:clang-tidy --@envoy_toolshed//format/clang_tidy:executable=@envoy//tools/clang-tidy
+build:clang-tidy --@envoy_toolshed//format/clang_tidy:config=//:clang_tidy_config
+build:clang-tidy --aspects @envoy_toolshed//format/clang_tidy:clang_tidy.bzl%clang_tidy_aspect
+build:clang-tidy --output_groups=report
+build:clang-tidy --build_tag_filters=-notidy
 
 # Basic ASAN/UBSAN that works for gcc
 build:asan --action_env=ENVOY_ASAN=1
@@ -149,6 +161,7 @@ build:clang-tsan --copt -DEVENT__DISABLE_DEBUG_MODE
 # https://github.com/abseil/abseil-cpp/issues/760
 # https://github.com/google/sanitizers/issues/953
 build:clang-tsan --test_env="TSAN_OPTIONS=report_atomic_races=0"
+build:clang-tsan --test_timeout=120,600,1500,4800
 
 # Clang MSAN - this is the base config for remote-msan and docker-msan. To run this config without
 # our build image, follow https://github.com/google/sanitizers/wiki/MemorySanitizerLibcxxHowTo
@@ -176,6 +189,10 @@ build:libc++ --action_env=BAZEL_CXXOPTS=-stdlib=libc++
 build:libc++ --action_env=BAZEL_LINKLIBS=-l%:libc++.a:-l%:libc++abi.a
 build:libc++ --action_env=BAZEL_LINKOPTS=-lm:-pthread
 build:libc++ --define force_libcpp=enabled
+
+build:libc++20 --config=libc++
+# gRPC has a lot of deprecated-enum-enum-conversion warning. Remove once it is addressed
+build:libc++20 --cxxopt=-std=c++20 --copt=-Wno-error=deprecated-enum-enum-conversion
 
 # Optimize build for binary size reduction.
 build:sizeopt -c opt --copt -Os
@@ -331,13 +348,14 @@ build:compile-time-options --define=deprecated_features=disabled
 build:compile-time-options --define=tcmalloc=gperftools
 build:compile-time-options --define=zlib=ng
 build:compile-time-options --define=uhv=enabled
+build:compile-time-options --config=libc++20
 build:compile-time-options --test_env=ENVOY_HAS_EXTRA_EXTENSIONS=true
 build:compile-time-options --@envoy//bazel:http3=False
 build:compile-time-options --@envoy//source/extensions/filters/http/kill_request:enabled
 
 # Docker sandbox
 # NOTE: Update this from https://github.com/envoyproxy/envoy-build-tools/blob/main/toolchains/rbe_toolchains_config.bzl#L8
-build:docker-sandbox --experimental_docker_image=envoyproxy/envoy-build-ubuntu:7304f974de2724617b7492ccb4c9c58cd420353a
+build:docker-sandbox --experimental_docker_image=envoyproxy/envoy-build-ubuntu:fdd65c6270a8507a18d5acd6cf19a18cb695e4fa@sha256:3c8a3ce6f90dcfb5d09dc8f79bb01404d3526d420061f9a176e0a8e91e1e573e
 build:docker-sandbox --spawn_strategy=docker
 build:docker-sandbox --strategy=Javac=docker
 build:docker-sandbox --strategy=Closure=docker
@@ -497,7 +515,7 @@ build:rbe-envoy-engflow --grpc_keepalive_time=30s
 build:rbe-envoy-engflow --remote_timeout=3600s
 build:rbe-envoy-engflow --bes_timeout=3600s
 build:rbe-envoy-engflow --bes_upload_mode=fully_async
-build:rbe-envoy-engflow --remote_default_exec_properties=container-image=docker://docker.io/envoyproxy/envoy-build-ubuntu:cmake-fdd65c6270a8507a18d5acd6cf19a18cb695e4fa@sha256:06d3d10a99cce5bf4036be65190f192a30503fa93b9df3c119fd1260d3ed7024
+build:rbe-envoy-engflow --remote_default_exec_properties=container-image=docker://docker.io/envoyproxy/envoy-build-ubuntu:fdd65c6270a8507a18d5acd6cf19a18cb695e4fa@sha256:3c8a3ce6f90dcfb5d09dc8f79bb01404d3526d420061f9a176e0a8e91e1e573e
 
 #############################################################################
 # debug: Various Bazel debugging flags

@@ -42,7 +42,7 @@ HttpGrpcAccessLog::HttpGrpcAccessLog(AccessLog::FilterPtr&& filter,
   for (const auto& header : config_->additional_response_trailers_to_log()) {
     response_trailers_to_log_.emplace_back(header);
   }
-  Envoy::Config::Utility::checkTransportVersion(config_->common_config());
+  THROW_IF_NOT_OK(Envoy::Config::Utility::checkTransportVersion(config_->common_config()));
   tls_slot_->set(
       [config = config_, access_logger_cache = access_logger_cache_](Event::Dispatcher&) {
         return std::make_shared<ThreadLocalLogger>(access_logger_cache->getOrCreateLogger(
@@ -53,13 +53,14 @@ HttpGrpcAccessLog::HttpGrpcAccessLog(AccessLog::FilterPtr&& filter,
 void HttpGrpcAccessLog::emitLog(const Http::RequestHeaderMap& request_headers,
                                 const Http::ResponseHeaderMap& response_headers,
                                 const Http::ResponseTrailerMap& response_trailers,
-                                const StreamInfo::StreamInfo& stream_info) {
+                                const StreamInfo::StreamInfo& stream_info,
+                                AccessLog::AccessLogType access_log_type) {
   // Common log properties.
   // TODO(mattklein123): Populate sample_rate field.
   envoy::data::accesslog::v3::HTTPAccessLogEntry log_entry;
   GrpcCommon::Utility::extractCommonAccessLogProperties(*log_entry.mutable_common_properties(),
                                                         request_headers, stream_info,
-                                                        config_->common_config());
+                                                        config_->common_config(), access_log_type);
 
   if (stream_info.protocol()) {
     switch (stream_info.protocol().value()) {

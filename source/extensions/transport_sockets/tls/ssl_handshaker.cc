@@ -14,6 +14,26 @@ namespace Extensions {
 namespace TransportSockets {
 namespace Tls {
 
+void ValidateResultCallbackImpl::onSslHandshakeCancelled() { extended_socket_info_.reset(); }
+
+void ValidateResultCallbackImpl::onCertValidationResult(bool succeeded,
+                                                        Ssl::ClientValidationStatus detailed_status,
+                                                        const std::string& /*error_details*/,
+                                                        uint8_t tls_alert) {
+  if (!extended_socket_info_.has_value()) {
+    return;
+  }
+  extended_socket_info_->setCertificateValidationStatus(detailed_status);
+  extended_socket_info_->setCertificateValidationAlert(tls_alert);
+  extended_socket_info_->onCertificateValidationCompleted(succeeded, true);
+}
+
+SslExtendedSocketInfoImpl::~SslExtendedSocketInfoImpl() {
+  if (cert_validate_result_callback_.has_value()) {
+    cert_validate_result_callback_->onSslHandshakeCancelled();
+  }
+}
+
 void SslExtendedSocketInfoImpl::setCertificateValidationStatus(
     Envoy::Ssl::ClientValidationStatus validated) {
   certificate_validation_status_ = validated;
@@ -23,10 +43,19 @@ Envoy::Ssl::ClientValidationStatus SslExtendedSocketInfoImpl::certificateValidat
   return certificate_validation_status_;
 }
 
+
+Ssl::ValidateResultCallbackPtr SslExtendedSocketInfoImpl::createValidateResultCallback() {
+  auto callback = std::make_unique<ValidateResultCallbackImpl>(
+      ssl_handshaker_.handshakeCallbacks()->connection().dispatcher(), *this);
+  cert_validate_result_callback_ = *callback;
+  cert_validation_result_ = Ssl::ValidateStatus::Pending;
+  return callback;
+}
+
 SslHandshakerImpl::SslHandshakerImpl(bssl::UniquePtr<SSL> ssl, int ssl_extended_socket_info_index,
                                      Ssl::HandshakeCallbacks* handshake_callbacks)
     : ssl_(std::move(ssl)), handshake_callbacks_(handshake_callbacks),
-      state_(Ssl::SocketState::PreHandshake) {
+      extended_socket_info_(*this) {
   SSL_set_ex_data(ssl_.get(), ssl_extended_socket_info_index, &(this->extended_socket_info_));
 }
 

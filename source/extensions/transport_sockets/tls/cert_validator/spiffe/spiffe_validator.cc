@@ -143,10 +143,11 @@ int SPIFFEValidator::initializeSslContexts(std::vector<SSL_CTX*>, bool) {
   return SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
 }
 
-int SPIFFEValidator::doSynchronousVerifyCertChain(X509_STORE_CTX* store_ctx,
-                                                  Ssl::SslExtendedSocketInfo* ssl_extended_info,
-                                                  X509& leaf_cert,
-                                                  const Network::TransportSocketOptions*) {
+#if 0
+bool SPIFFEValidator::verifyCertChainUsingTrustBundleStore(X509& leaf_cert,
+                                                           STACK_OF(X509)* cert_chain,
+                                                           X509_VERIFY_PARAM* verify_param,
+                                                           std::string& error_details) {
   if (!SPIFFEValidator::certificatePrecheck(&leaf_cert)) {
     if (ssl_extended_info) {
       ssl_extended_info->setCertificateValidationStatus(Envoy::Ssl::ClientValidationStatus::Failed);
@@ -200,6 +201,8 @@ int SPIFFEValidator::doSynchronousVerifyCertChain(X509_STORE_CTX* store_ctx,
   X509_STORE_CTX_cleanup(verify_ctx.get());
   return san_match;
 }
+
+#endif
 
 X509_STORE* SPIFFEValidator::getTrustBundleStore(X509* leaf_cert) {
   bssl::UniquePtr<GENERAL_NAMES> san_names(static_cast<GENERAL_NAMES*>(

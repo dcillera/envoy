@@ -200,8 +200,7 @@ TEST_P(AccessLogIntegrationTest, AccessLoggerStatsAreIndependentOfListener) {
   // The config has the same GRPC access logger so it is not removed from the
   // cache.
   {
-    ConfigHelper new_config_helper(
-        version_, *api_, MessageUtil::getJsonStringFromMessageOrError(config_helper_.bootstrap()));
+    ConfigHelper new_config_helper(version_, config_helper_.bootstrap());
     new_config_helper.addConfigModifier(
         [](envoy::config::bootstrap::v3::Bootstrap& bootstrap) -> void {
           auto* listener = bootstrap.mutable_static_resources()->mutable_listeners(0);

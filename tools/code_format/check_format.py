@@ -267,13 +267,21 @@ class FormatChecker:
         format_flag = True
         output_lines = []
         for line_number, line in enumerate(self.read_lines(path)):
+            if line_number == 0 and path.endswith(".h"):
+                if line == "":
+                    error_message = f"{path}:{line_number + 1}: the first line is empty for header files"
+                    continue
+                elif not line.startswith("#pragma once"):
+                    error_message = f"{path}:{line_number + 1}: #pragma once missed for header files"
+                    output_lines.append("#pragma once")
+                    output_lines.append("")
             if line.find("// clang-format off") != -1:
                 if not format_flag and error_message is None:
-                    error_message = "%s:%d: %s" % (path, line_number + 1, "clang-format nested off")
+                    error_message = f"{path}:{line_number + 1}: clang-format nested off"
                 format_flag = False
             if line.find("// clang-format on") != -1:
                 if format_flag and error_message is None:
-                    error_message = "%s:%d: %s" % (path, line_number + 1, "clang-format nested on")
+                    error_message = f"{path}:{line_number + 1}: clang-format nested on"
                 format_flag = True
             if format_flag:
                 output_lines.append(line_xform(line, line_number))
@@ -284,7 +292,7 @@ class FormatChecker:
         if write:
             pathlib.Path(path).write_text('\n'.join(output_lines), encoding='utf-8')
         if not format_flag and error_message is None:
-            error_message = "%s:%d: %s" % (path, line_number + 1, "clang-format remains off")
+            error_message = f"{path}:{line_number + 1}: clang-format remains off"
         return error_message
 
     # Obtain all the lines in a given file.
@@ -380,15 +388,13 @@ class FormatChecker:
         ]
 
     def allow_listed_for_raw_try(self, file_path):
-        # TODO(chaoqin-li1123): Exclude some important extensions from ALLOWLIST.
-        return file_path in self.config.paths["raw_try"]["include"] or file_path.startswith(
-            "./source/extensions")
+        return file_path in self.config.paths["raw_try"]["include"]
 
     def deny_listed_for_exceptions(self, file_path):
         # Returns true when it is a non test header file or the file_path is in DENYLIST or
         # it is under tools/testdata subdirectory.
-
-        return (file_path.endswith('.h') and not file_path.startswith("./test/") and not file_path in self.config.paths["exception"]["include"]) or file_path in self.config.paths["exception"]["exclude"] \
+        return (file_path.endswith('.h') and not file_path.startswith("./test/") and not file_path in self.config.paths["exception"]["include"]) \
+            or (file_path.endswith('.cc') and file_path.startswith("./source/") and not file_path.startswith("./source/extensions/") and not file_path in self.config.paths["exception"]["include"]) \
             or self.is_in_subdir(file_path, 'tools/testdata')
 
     def allow_listed_for_build_urls(self, file_path):
@@ -473,6 +479,9 @@ class FormatChecker:
 
         if self.has_invalid_angle_bracket_directory(line):
             line = line.replace("<", '"').replace(">", '"')
+
+        if "[[fallthrough]];" in line:
+            line = line.replace("[[fallthrough]];", "FALLTHRU;")
 
         # Fix incorrect protobuf namespace references.
         for invalid_construct, valid_construct in self.config.replacements[
@@ -609,7 +618,7 @@ class FormatChecker:
             report_error(
                 "Don't use ambiguous duration(value), use an explicit duration type, e.g. Event::TimeSystem::Milliseconds(value)"
             )
-        if not self.allow_listed_for_register_factory(file_path):
+        if file_path.startswith("mobile") and not self.allow_listed_for_register_factory(file_path):
             if "Registry::RegisterFactory<" in line or "REGISTER_FACTORY" in line:
                 report_error(
                     "Don't use Registry::RegisterFactory or REGISTER_FACTORY in tests, "
@@ -682,7 +691,7 @@ class FormatChecker:
         if " try {" in line and file_path.startswith(
                 "./source") and not self.allow_listed_for_raw_try(file_path):
             report_error(
-                "Don't use raw try, use TRY_ASSERT_MAIN_THREAD if on the main thread otherwise don't use exceptions."
+                "Don't use raw try, use TRY_ASSERT_MAIN_THREAD and CATCH if on the main thread otherwise don't use exceptions."
             )
         if "__attribute__((packed))" in line and file_path != "./envoy/common/platform.h":
             # __attribute__((packed)) is not supported by MSVC, we have a PACKED_STRUCT macro that
@@ -703,6 +712,8 @@ class FormatChecker:
             report_error("Don't use 'using testing::Test;, elaborate the type instead")
         if line.startswith("using testing::TestWithParams;"):
             report_error("Don't use 'using testing::Test;, elaborate the type instead")
+        if "[[fallthrough]];" in line:
+            report_error("Use 'FALLTHRU;' instead like the other parts of the code")
         if self.config.re["test_name_starting_lc"].search(line):
             # Matches variants of TEST(), TEST_P(), TEST_F() etc. where the test name begins
             # with a lowercase letter.
@@ -1039,7 +1050,9 @@ class FormatChecker:
 
         if self.check_error_messages():
             if self.args.operation_type == "check":
-                print("ERROR: check format failed. run '//tools/code_format:check_format -- fix'")
+                print(
+                    "ERROR: check format failed. run 'bazel run //tools/code_format:check_format -- fix'"
+                )
             else:
                 print("ERROR: check format failed. diff has been applied'")
             sys.exit(1)

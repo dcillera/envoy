@@ -41,6 +41,14 @@ Address::InstanceConstSharedPtr instanceOrNull(StatusOr<Address::InstanceConstSh
   return nullptr;
 }
 
+std::string Utility::urlFromDatagramAddress(const Address::Instance& addr) {
+  if (addr.ip() != nullptr) {
+    return absl::StrCat(UDP_SCHEME, addr.asStringView());
+  } else {
+    return absl::StrCat(UNIX_SCHEME, addr.asStringView());
+  }
+}
+
 Address::InstanceConstSharedPtr Utility::resolveUrl(const std::string& url) {
   if (urlIsTcpScheme(url)) {
     return parseInternetAddressAndPort(url.substr(TCP_SCHEME.size()));
@@ -229,17 +237,19 @@ Address::InstanceConstSharedPtr Utility::getLocalAddress(const Address::IpVersio
 
     const Api::SysCallIntResult rc =
         Api::OsSysCallsSingleton::get().getifaddrs(interface_addresses);
-    RELEASE_ASSERT(!rc.return_value_, fmt::format("getifaddrs error: {}", rc.errno_));
-
-    // man getifaddrs(3)
-    for (const auto& interface_address : interface_addresses) {
-      if (!isLoopbackAddress(*interface_address.interface_addr_) &&
-          interface_address.interface_addr_->ip()->version() == version) {
-        ret = interface_address.interface_addr_;
-        if (ret->ip()->version() == Address::IpVersion::v6) {
-          ret = ret->ip()->ipv6()->addressWithoutScopeId();
+    if (rc.return_value_ != 0) {
+      ENVOY_LOG_MISC(debug, fmt::format("getifaddrs error: {}", rc.errno_));
+    } else {
+      // man getifaddrs(3)
+      for (const auto& interface_address : interface_addresses) {
+        if (!isLoopbackAddress(*interface_address.interface_addr_) &&
+            interface_address.interface_addr_->ip()->version() == version) {
+          ret = interface_address.interface_addr_;
+          if (ret->ip()->version() == Address::IpVersion::v6) {
+            ret = ret->ip()->ipv6()->addressWithoutScopeId();
+          }
+          break;
         }
-        break;
       }
     }
   }
@@ -392,7 +402,7 @@ Address::InstanceConstSharedPtr Utility::getOriginalDst(Socket& sock) {
       sock.getSocketOption(opt_dst.level(), opt_dst.option(), &orig_addr, &addr_len).return_value_;
 
   if (status != 0) {
-    if (Api::OsSysCallsSingleton::get().supportsIpTransparent()) {
+    if (Api::OsSysCallsSingleton::get().supportsIpTransparent(*ipVersion)) {
       socklen_t flag_len = sizeof(int);
       int is_tp;
       status =
@@ -552,7 +562,7 @@ Api::IoCallUint64Result Utility::writeToSocket(IoHandle& handle, Buffer::RawSlic
                                                uint64_t num_slices, const Address::Ip* local_ip,
                                                const Address::Instance& peer_address) {
   Api::IoCallUint64Result send_result(
-      /*rc=*/0, /*err=*/Api::IoErrorPtr(nullptr, IoSocketError::deleteIoError));
+      /*rc=*/0, /*err=*/Api::IoError::none());
   do {
     send_result = handle.sendmsg(slices, num_slices, 0, local_ip, peer_address);
   } while (!send_result.ok() &&

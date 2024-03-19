@@ -88,4 +88,26 @@ Network::Address::InstanceConstSharedPtr getSslAddress(const Network::Address::I
                                                        int port);
 
 } // namespace Ssl
+
+namespace Extensions {
+namespace TransportSockets {
+namespace Tls {
+
+class ContextImplPeer {
+public:
+  static const Extensions::TransportSockets::Tls::CertValidator&
+  getCertValidator(const Extensions::TransportSockets::Tls::ContextImpl& context) {
+    return *context.cert_validator_;
+  }
+
+  static Extensions::TransportSockets::Tls::CertValidator&
+  getMutableCertValidator(const Extensions::TransportSockets::Tls::ContextImpl& context) {
+    return *context.cert_validator_;
+  }
+};
+
+} // namespace Tls
+} // namespace TransportSockets
+} // namespace Extensions
+
 } // namespace Envoy

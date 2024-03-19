@@ -151,6 +151,20 @@ The following core load shed points are supported:
     - Envoy will reject (close) new TCP connections. This occurs before the
       :ref:`Listener Filter Chain <life_of_a_request>` is created.
 
+  * - envoy.load_shed_points.http_connection_manager_decode_headers
+    - Envoy will reject new HTTP streams by sending a local reply. This occurs
+      right after the http codec has finished parsing headers but before the
+      :ref:`HTTP Filter Chain is instantiated <life_of_a_request>`.
+
+  * - envoy.load_shed_points.http1_server_abort_dispatch
+    - Envoy will reject processing HTTP1 at the codec level. If a response has
+      not yet started, Envoy will send a local reply. Envoy will then close the
+      connection.
+
+  * - envoy.load_shed_points.http2_server_go_away_on_dispatch
+    - Envoy will send a ``GOAWAY`` while processing HTTP2 requests at the codec
+      level which will eventually drain the HTTP/2 connection.
+
 .. _config_overload_manager_reducing_timeouts:
 
 Reducing timeouts
@@ -199,11 +213,26 @@ again 600 seconds, then the minimum timer value would be :math:`10\% \cdot 600s 
 Limiting Active Connections
 ---------------------------
 
-Currently, the only supported way to limit the total number of active connections allowed across all
-listeners is via specifying an integer through the runtime key
-``overload.global_downstream_max_connections``. The connection limit is recommended to be less than
+To limit the total number of active downstream connections allowed across all
+listeners configure :ref:`downstream connections monitor <envoy_v3_api_msg_extensions.resource_monitors.downstream_connections.v3.DownstreamConnectionsConfig>` in Overload Manager:
+
+.. code-block:: yaml
+
+   resource_monitors:
+     - name: "envoy.resource_monitors.global_downstream_max_connections"
+       typed_config:
+         "@type": type.googleapis.com/envoy.extensions.resource_monitors.downstream_connections.v3.DownstreamConnectionsConfig
+         max_active_downstream_connections: 1000
+
+:ref:`Downstream connections monitor <envoy_v3_api_msg_extensions.resource_monitors.downstream_connections.v3.DownstreamConnectionsConfig>` does not
+support runtime updates for the configured value of :ref:`max_active_downstream_connections
+<envoy_v3_api_field_extensions.resource_monitors.downstream_connections.v3.DownstreamConnectionsConfig.max_active_downstream_connections>`
+One could also set this limit via specifying an integer through the runtime key
+``overload.global_downstream_max_connections``, though this key is deprecated and will be removed in future.
+The connection limit is recommended to be less than
 half of the system's file descriptor limit, to account for upstream connections, files, and other
 usage of file descriptors.
+
 If the value is unspecified, there is no global limit on the number of active downstream connections
 and Envoy will emit a warning indicating this at startup. To disable the warning without setting a
 limit on the number of active downstream connections, the runtime value may be set to a very large
@@ -339,3 +368,13 @@ with the following statistics:
 
   active, Gauge, "Active state of the action (0=scaling, 1=saturated)"
   scale_percent, Gauge, "Scaled value of the action as a percent (0-99=scaling, 100=saturated)"
+
+Each configured Load Shed Point has a statistics tree rooted at *overload.<name>.*
+with the following statistics:
+
+.. csv-table::
+  :header: Name, Type, Description
+  :widths: 1, 1, 2
+
+  scale_percent, Gauge, "Scaled value of the action as a percent (0-99=scaling, 100=saturated)"
+

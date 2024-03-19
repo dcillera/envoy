@@ -1,3 +1,5 @@
+#pragma once
+
 #include <memory>
 
 #include "envoy/ssl/context_config.h"
@@ -24,7 +26,15 @@ public:
     return status_;
   }
 
-  private:
+  Ssl::ValidateResultCallbackPtr createValidateResultCallback() override { return nullptr; };
+
+  void onCertificateValidationCompleted(bool succeeded, bool) override {
+    validate_result_ = succeeded ? Ssl::ValidateStatus::Successful : Ssl::ValidateStatus::Failed;
+  }
+  Ssl::ValidateStatus certificateValidationResult() const override { return validate_result_; }
+  uint8_t certificateValidationAlert() const override { return SSL_AD_CERTIFICATE_UNKNOWN; }
+
+private:
   Envoy::Ssl::ClientValidationStatus status_;
 };
 

@@ -25,12 +25,17 @@ filegroup(
             "root/**/envoy-dynamic-cds-demo.yaml",
             "root/**/envoy-dynamic-lds-demo.yaml",
             "root/**/envoy-dynamic-filesystem-demo.yaml",
+            "root/operations/_include/traffic_tapping_*.yaml",
+            "root/configuration/http/http_filters/_include/checksum_filter.yaml",
             # TODO(phlax/windows-dev): figure out how to get this working on windows
             # TODO(dmitri-d): figure out how to get this working on rhel/fedora
             #      "Error: unable to read file: /etc/ssl/certs/ca-certificates.crt"
             "root/configuration/http/http_filters/_include/dns-cache-circuit-breaker.yaml",
             "root/configuration/other_features/_include/dlb.yaml",
             "root/intro/arch_overview/security/_include/ssl.yaml",
+            "root/configuration/listeners/network_filters/_include/generic_proxy_filter.yaml",
+            "root/configuration/overview/_include/xds_api/oauth-sds-example.yaml",
+            "root/configuration/security/_include/sds-source-example.yaml",
         ],
     ) + select({
         "//bazel:windows_x86_64": [],
@@ -40,7 +45,10 @@ filegroup(
 
 filegroup(
     name = "contrib_configs",
-    srcs = select({
+    srcs = [
+        "root/configuration/http/http_filters/_include/checksum_filter.yaml",
+        "root/configuration/listeners/network_filters/_include/generic_proxy_filter.yaml",
+    ] + select({
         "//bazel:windows_x86_64": [],
         "//conditions:default": glob(["root/_configs/go/*.yaml"]),
     }),
@@ -188,6 +196,13 @@ pkg_files(
 )
 
 pkg_files(
+    name = "repo_configs",
+    srcs = ["//configs"],
+    prefix = "_configs/repo",
+    strip_prefix = "/configs",
+)
+
+pkg_files(
     name = "examples_rst",
     srcs = ["//examples:files"],
     prefix = "start/sandboxes/_include",
@@ -198,6 +213,7 @@ pkg_filegroup(
     name = "rst_files",
     srcs = [
         ":examples_rst",
+        ":repo_configs",
         ":sphinx_base",
         ":sphinx_inventories",
         ":sphinx_root",

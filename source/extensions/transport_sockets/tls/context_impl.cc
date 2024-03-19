@@ -172,13 +172,25 @@ ContextImpl::ContextImpl(Stats::Scope& scope, const Envoy::Ssl::ContextConfig& c
   if (!capabilities_.verifies_peer_certificates) {
     for (auto ctx : ssl_contexts) {
       if (verify_mode != SSL_VERIFY_NONE) {
-        if (Runtime::runtimeFeatureEnabled("envoy.reloadable_features.tls_async_cert_validation")) {
-          throw EnvoyException(
-            "envoy.reloadable_features.tls_async_cert_validation=true is not supported");
-        } else {
+        // dcillera TODO: manage async certificate 
+        // if (Runtime::runtimeFeatureEnabled("envoy.reloadable_features.tls_async_cert_validation")) {
+        //   throw EnvoyException(
+        //     "envoy.reloadable_features.tls_async_cert_validation=true is not supported");
+        // } else {
           SSL_CTX_set_verify(ctx, verify_mode, nullptr);
           SSL_CTX_set_cert_verify_callback(ctx, verifyCallback, this);
-        }
+//        }
+        // // TODO(danzh) Envoy's use of SSL_VERIFY_NONE does not quite match the actual semantics as
+        // // a client. As a client, SSL_VERIFY_NONE means to verify the certificate (which will fail
+        // // without trust anchors), save the result in the session ticket, but otherwise continue
+        // // with the handshake. But Envoy actually wants it to accept all certificates. The
+        // // disadvantage of using SSL_VERIFY_NONE is that it records the verify_result, which Envoy
+        // // never queries but gets saved in session tickets, and tries to find an anchor that isn't
+        // // there. And also it differs from server side behavior of SSL_VERIFY_NONE which won't
+        // // even request client certs. So, instead, we should configure a callback to skip
+        // // validation and always supply the callback to boring SSL.
+        // SSL_CTX_set_custom_verify(ctx, verify_mode, customVerifyCallback);
+        // SSL_CTX_set_reverify_on_resume(ctx, /*reverify_on_resume_enabled)=*/1);
       }
     }
   }
@@ -280,20 +292,30 @@ ContextImpl::ContextImpl(Stats::Scope& scope, const Envoy::Ssl::ContextConfig& c
 
   parsed_alpn_protocols_ = parseAlpnProtocols(config.alpnProtocols());
 
+#if BORINGSSL_API_VERSION >= 21
+  // Register stat names based on lists reported by BoringSSL.
+  std::vector<const char*> list(SSL_get_all_cipher_names(nullptr, 0));
+  SSL_get_all_cipher_names(list.data(), list.size());
+  stat_name_set_->rememberBuiltins(list);
+
+  list.resize(SSL_get_all_curve_names(nullptr, 0));
+  SSL_get_all_curve_names(list.data(), list.size());
+  stat_name_set_->rememberBuiltins(list);
+
+  list.resize(SSL_get_all_signature_algorithm_names(nullptr, 0));
+  SSL_get_all_signature_algorithm_names(list.data(), list.size());
+  stat_name_set_->rememberBuiltins(list);
+
+  list.resize(SSL_get_all_version_names(nullptr, 0));
+  SSL_get_all_version_names(list.data(), list.size());
+  stat_name_set_->rememberBuiltins(list);
+#else
   // Use the SSL library to iterate over the configured ciphers.
   //
   // Note that if a negotiated cipher suite is outside of this set, we'll issue an ENVOY_BUG.
   for (TlsContext& tls_context : tls_contexts_) {
     for (const SSL_CIPHER* cipher : SSL_CTX_get_ciphers(tls_context.ssl_ctx_.get())) {
       stat_name_set_->rememberBuiltin(SSL_CIPHER_get_name(cipher));
-    }
-  }
-
-  // As late as possible, run the custom SSL_CTX configuration callback on each
-  // SSL_CTX, if set.
-  if (auto sslctx_cb = config.sslctxCb(); sslctx_cb) {
-    for (TlsContext& ctx : tls_contexts_) {
-      sslctx_cb(ctx.ssl_ctx_.get());
     }
   }
 
@@ -335,6 +357,15 @@ ContextImpl::ContextImpl(Stats::Scope& scope, const Envoy::Ssl::ContextConfig& c
   //
   // Note that if a negotiated version is outside of this set, we'll issue an ENVOY_BUG.
   stat_name_set_->rememberBuiltins({"TLSv1", "TLSv1.1", "TLSv1.2", "TLSv1.3"});
+#endif
+
+  // As late as possible, run the custom SSL_CTX configuration callback on each
+  // SSL_CTX, if set.
+  if (auto sslctx_cb = config.sslctxCb(); sslctx_cb) {
+    for (TlsContext& ctx : tls_contexts_) {
+      sslctx_cb(ctx.ssl_ctx_.get());
+    }
+  }
 
   if (!config.tlsKeyLogPath().empty()) {
     ENVOY_LOG(debug, "Enable tls key log");
@@ -425,6 +456,7 @@ ContextImpl::newSsl(const Network::TransportSocketOptionsConstSharedPtr& options
   return ssl_con;
 }
 
+// dcillera TODO: what has to be used?
 int ContextImpl::verifyCallback(X509_STORE_CTX* store_ctx, void* arg) {
   ContextImpl* impl = reinterpret_cast<ContextImpl*>(arg);
   SSL* ssl = reinterpret_cast<SSL*>(
@@ -499,6 +531,19 @@ void ContextImpl::logHandshake(SSL* ssl) const {
   if (!cert.get()) {
     stats_.no_certificate_.inc();
   }
+
+#if defined(BORINGSSL_FIPS) && BORINGSSL_API_VERSION >= 18
+#error "Delete preprocessor check below; no longer needed"
+#endif
+
+#if BORINGSSL_API_VERSION >= 18
+  // Increment the `was_key_usage_invalid_` stats to indicate the given cert would have triggered an
+  // error but is allowed because the enforcement that rsa key usage and tls usage need to be
+  // matched has been disabled.
+  if (SSL_was_key_usage_invalid(ssl)) {
+    stats_.was_key_usage_invalid_.inc();
+  }
+#endif // BORINGSSL_API_VERSION
 }
 
 std::vector<Ssl::PrivateKeyMethodProviderSharedPtr> ContextImpl::getPrivateKeyMethodProviders() {
@@ -575,6 +620,7 @@ ClientContextImpl::ClientContextImpl(Stats::Scope& scope,
     : ContextImpl(scope, config, time_source),
       server_name_indication_(config.serverNameIndication()),
       allow_renegotiation_(config.allowRenegotiation()),
+      enforce_rsa_key_usage_(config.enforceRsaKeyUsage()),
       max_session_keys_(config.maxSessionKeys()) {
   // This should be guaranteed during configuration ingestion for client contexts.
   ASSERT(tls_contexts_.size() == 1);
@@ -700,7 +746,7 @@ ServerContextImpl::ServerContextImpl(Stats::Scope& scope,
                                      const std::vector<std::string>& server_names,
                                      TimeSource& time_source)
     : ContextImpl(scope, config, time_source), session_ticket_keys_(config.sessionTicketKeys()),
-      ocsp_staple_policy_(config.ocspStaplePolicy()), has_rsa_(false),
+      ocsp_staple_policy_(config.ocspStaplePolicy()),
       full_scan_certs_on_sni_mismatch_(config.fullScanCertsOnSNIMismatch()) {
   if (config.tlsCertificates().empty() && !config.capabilities().provides_certificates) {
     throw EnvoyException("Server TlsCertificates must have a certificate specified");
@@ -781,6 +827,10 @@ ServerContextImpl::ServerContextImpl(Stats::Scope& scope,
             return server_context_impl->sessionTicketProcess(ssl, key_name, iv, ctx, hmac_ctx,
                                                              encrypt);
           });
+    }
+
+    if (config.disableStatefulSessionResumption()) {
+      SSL_CTX_set_session_cache_mode(ctx.ssl_ctx_.get(), SSL_SESS_CACHE_OFF);
     }
 
     if (config.sessionTimeout() && !config.capabilities().handles_session_resumption) {
@@ -1345,6 +1395,7 @@ bool TlsContext::isCipherEnabled(uint16_t cipher_id, uint16_t client_version) {
   return false;
 }
 
+// TODO dcillera: check what has to be called
 bool ContextImpl::verifyCertChain(X509& leaf_cert, STACK_OF(X509)& intermediates,
                                   std::string& error_details) {
   bssl::UniquePtr<X509_STORE_CTX> ctx(X509_STORE_CTX_new());

@@ -658,8 +658,6 @@ TEST_P(Http2MetadataIntegrationTest, ProxyMultipleMetadataReachSizeLimit) {
 
 // Verifies small metadata can be sent at different locations of a request.
 TEST_P(Http2MetadataIntegrationTest, ProxySmallMetadataInRequest) {
-  // Make sure we have metadata coverage of the new style code.
-  config_helper_.addRuntimeOverride("envoy.reloadable_features.allow_upstream_filters", "true");
   initialize();
   codec_client_ = makeHttpConnection(lookupPort("http"));
 
@@ -689,8 +687,6 @@ TEST_P(Http2MetadataIntegrationTest, ProxySmallMetadataInRequest) {
 
 // Verifies large metadata can be sent at different locations of a request.
 TEST_P(Http2MetadataIntegrationTest, ProxyLargeMetadataInRequest) {
-  // Make sure we have metadata coverage of the old style code.
-  config_helper_.addRuntimeOverride("envoy.reloadable_features.allow_upstream_filters", "false");
   initialize();
   codec_client_ = makeHttpConnection(lookupPort("http"));
 
@@ -1100,12 +1096,26 @@ TEST_P(MultiplexedIntegrationTestWithSimulatedTime, GoAwayAfterTooManyResets) {
   const int total_streams = 100;
   config_helper_.addRuntimeOverride("overload.premature_reset_total_stream_count",
                                     absl::StrCat(total_streams));
+  autonomous_upstream_ = true;
+  autonomous_allow_incomplete_streams_ = true;
   initialize();
 
   Http::TestRequestHeaderMapImpl headers{
       {":method", "GET"}, {":path", "/healthcheck"}, {":scheme", "http"}, {":authority", "host"}};
   codec_client_ = makeHttpConnection(lookupPort("http"));
+
   for (int i = 0; i < total_streams; ++i) {
+    // Send and wait
+    auto encoder_decoder = codec_client_->startRequest(headers);
+    request_encoder_ = &encoder_decoder.first;
+    codec_client_->sendData(*request_encoder_, 0, true);
+    auto response = std::move(encoder_decoder.second);
+
+    ASSERT_TRUE(response->waitForEndStream());
+    EXPECT_TRUE(response->complete());
+  }
+  for (int i = 0; i < total_streams; ++i) {
+    // Send and reset
     auto encoder_decoder = codec_client_->startRequest(headers);
     request_encoder_ = &encoder_decoder.first;
     auto response = std::move(encoder_decoder.second);
@@ -1116,6 +1126,34 @@ TEST_P(MultiplexedIntegrationTestWithSimulatedTime, GoAwayAfterTooManyResets) {
   // Envoy should disconnect client due to premature reset check
   ASSERT_TRUE(codec_client_->waitForDisconnect());
   test_server_->waitForCounterEq("http.config_test.downstream_rq_rx_reset", total_streams);
+  test_server_->waitForCounterEq("http.config_test.downstream_rq_too_many_premature_resets", 1);
+}
+
+TEST_P(MultiplexedIntegrationTestWithSimulatedTime, GoAwayQuicklyAfterTooManyResets) {
+  EXCLUDE_DOWNSTREAM_HTTP3; // Need to wait for the server to reset the stream
+                            // before opening new one.
+  config_helper_.addRuntimeOverride("envoy.restart_features.send_goaway_for_premature_rst_streams",
+                                    "true");
+  const int total_streams = 100;
+  config_helper_.addRuntimeOverride("overload.premature_reset_total_stream_count",
+                                    absl::StrCat(total_streams));
+  const int num_reset_streams = total_streams / 2;
+  initialize();
+
+  Http::TestRequestHeaderMapImpl headers{
+      {":method", "GET"}, {":path", "/healthcheck"}, {":scheme", "http"}, {":authority", "host"}};
+  codec_client_ = makeHttpConnection(lookupPort("http"));
+  for (int i = 0; i < num_reset_streams; i++) {
+    auto encoder_decoder = codec_client_->startRequest(headers);
+    request_encoder_ = &encoder_decoder.first;
+    auto response = std::move(encoder_decoder.second);
+    codec_client_->sendReset(*request_encoder_);
+    ASSERT_TRUE(response->waitForReset());
+  }
+
+  // Envoy should disconnect client due to premature reset check
+  ASSERT_TRUE(codec_client_->waitForDisconnect());
+  test_server_->waitForCounterEq("http.config_test.downstream_rq_rx_reset", num_reset_streams);
   test_server_->waitForCounterEq("http.config_test.downstream_rq_too_many_premature_resets", 1);
 }
 
@@ -1879,26 +1917,51 @@ TEST_P(MultiplexedRingHashIntegrationTest, CookieRoutingWithCookieWithTtlSet) {
 
 struct FrameIntegrationTestParam {
   Network::Address::IpVersion ip_version;
+  Http2Impl http2_implementation;
 };
 
 std::string
 frameIntegrationTestParamToString(const testing::TestParamInfo<FrameIntegrationTestParam>& params) {
-  return TestUtility::ipVersionToString(params.param.ip_version);
+  return absl::StrCat(TestUtility::ipVersionToString(params.param.ip_version), "_",
+                      http2ImplementationToString(params.param.http2_implementation));
 }
 
 class Http2FrameIntegrationTest : public testing::TestWithParam<FrameIntegrationTestParam>,
                                   public Http2RawFrameIntegrationTest {
 public:
-  Http2FrameIntegrationTest() : Http2RawFrameIntegrationTest(GetParam().ip_version) {}
+  Http2FrameIntegrationTest() : Http2RawFrameIntegrationTest(GetParam().ip_version) {
+    setupHttp2ImplOverrides(GetParam().http2_implementation);
+  }
 
   static std::vector<FrameIntegrationTestParam> testParams() {
     std::vector<FrameIntegrationTestParam> v;
     for (auto ip_version : TestEnvironment::getIpVersionsForTest()) {
-      v.push_back({ip_version});
+      v.push_back({ip_version, Http2Impl::Nghttp2});
+      v.push_back({ip_version, Http2Impl::Oghttp2});
     }
     return v;
   }
 };
+
+TEST_P(Http2FrameIntegrationTest, MaxConcurrentStreamsIsRespected) {
+  const int kTotalRequests = 101;
+  config_helper_.addConfigModifier(
+      [&](envoy::extensions::filters::network::http_connection_manager::v3::HttpConnectionManager&
+              hcm) -> void {
+        hcm.mutable_http2_protocol_options()->mutable_max_concurrent_streams()->set_value(100);
+      });
+  beginSession();
+
+  std::string buffer;
+  for (int i = 0; i < kTotalRequests; ++i) {
+    auto request = Http2Frame::makeRequest(Http2Frame::makeClientStreamId(i), "a", "/");
+    absl::StrAppend(&buffer, std::string(request));
+  }
+
+  ASSERT_TRUE(tcp_client_->write(buffer, false, false));
+  tcp_client_->waitForDisconnect();
+  test_server_->waitForCounterGe("http.config_test.downstream_cx_destroy_local", 1);
+}
 
 // Regression test.
 TEST_P(Http2FrameIntegrationTest, SetDetailsTwice) {
@@ -2134,6 +2197,40 @@ TEST_P(Http2FrameIntegrationTest, AccessLogOfWireBytesIfResponseSizeGreaterThanW
   tcp_client_->close();
 }
 
+TEST_P(Http2FrameIntegrationTest, HostDifferentFromAuthority) {
+  beginSession();
+
+  uint32_t request_idx = 0;
+  auto request = Http2Frame::makeRequest(Http2Frame::makeClientStreamId(request_idx),
+                                         "one.example.com", "/path", {{"host", "two.example.com"}});
+  sendFrame(request);
+
+  waitForNextUpstreamRequest();
+  EXPECT_EQ(upstream_request_->headers().getHostValue(), "one.example.com,two.example.com");
+  upstream_request_->encodeHeaders(default_response_headers_, true);
+  auto frame = readFrame();
+  EXPECT_EQ(Http2Frame::Type::Headers, frame.type());
+  EXPECT_EQ(Http2Frame::ResponseStatus::Ok, frame.responseStatus());
+  tcp_client_->close();
+}
+
+TEST_P(Http2FrameIntegrationTest, HostSameAsAuthority) {
+  beginSession();
+
+  uint32_t request_idx = 0;
+  auto request = Http2Frame::makeRequest(Http2Frame::makeClientStreamId(request_idx),
+                                         "one.example.com", "/path", {{"host", "one.example.com"}});
+  sendFrame(request);
+
+  waitForNextUpstreamRequest();
+  EXPECT_EQ(upstream_request_->headers().getHostValue(), "one.example.com,one.example.com");
+  upstream_request_->encodeHeaders(default_response_headers_, true);
+  auto frame = readFrame();
+  EXPECT_EQ(Http2Frame::Type::Headers, frame.type());
+  EXPECT_EQ(Http2Frame::ResponseStatus::Ok, frame.responseStatus());
+  tcp_client_->close();
+}
+
 TEST_P(Http2FrameIntegrationTest, MultipleHeaderOnlyRequests) {
   const int kRequestsSentPerIOCycle = 20;
   autonomous_upstream_ = true;
@@ -2343,10 +2440,11 @@ TEST_P(Http2FrameIntegrationTest, MultipleHeaderOnlyRequestsFollowedByReset) {
   tcp_client_->close();
 }
 
+// This test depends on an another patch with premature resets
 TEST_P(Http2FrameIntegrationTest, ResettingDeferredRequestsTriggersPrematureResetCheck) {
   const int kRequestsSentPerIOCycle = 20;
-  // Set premature stream count to the number of streams we are about to send
-  config_helper_.addRuntimeOverride("overload.premature_reset_total_stream_count", "20");
+  // Set premature stream count to twice the number of streams we are about to send.
+  config_helper_.addRuntimeOverride("overload.premature_reset_total_stream_count", "40");
   config_helper_.addRuntimeOverride("http.max_requests_per_io_cycle", "1");
   beginSession();
 
@@ -2367,6 +2465,7 @@ TEST_P(Http2FrameIntegrationTest, ResettingDeferredRequestsTriggersPrematureRese
   // Envoy should close the client connection due to too many premature resets
   tcp_client_->waitForDisconnect();
   test_server_->waitForCounterEq("http.config_test.downstream_rq_too_many_premature_resets", 1);
+  tcp_client_->close();
 }
 
 TEST_P(Http2FrameIntegrationTest, CloseConnectionWithDeferredStreams) {
@@ -2518,13 +2617,7 @@ TEST_P(Http2MetadataIntegrationTest, UpstreamMetadataAfterEndStream) {
 }
 
 TEST_P(MultiplexedIntegrationTest, InvalidTrailers) {
-#ifdef ENVOY_ENABLE_UHV
-  if (GetParam().http2_implementation == Http2Impl::Oghttp2 &&
-      downstreamProtocol() == Http::CodecType::HTTP2) {
-    return;
-  }
-#endif
-
+  disable_client_header_validation_ = true;
   autonomous_allow_incomplete_streams_ = true;
   useAccessLog("%RESPONSE_CODE_DETAILS%");
   autonomous_upstream_ = true;
@@ -2578,7 +2671,7 @@ TEST_P(MultiplexedIntegrationTest, InconsistentContentLength) {
     EXPECT_THAT(waitForAccessLog(access_log_name_), HasSubstr("inconsistent_content_length"));
   } else if (GetParam().http2_implementation == Http2Impl::Oghttp2) {
     EXPECT_EQ(Http::StreamResetReason::RemoteReset, response->resetReason());
-    EXPECT_THAT(waitForAccessLog(access_log_name_), HasSubstr("http2.remote_reset"));
+    EXPECT_THAT(waitForAccessLog(access_log_name_), "http2.violation.of.messaging.rule");
   } else {
     EXPECT_EQ(Http::StreamResetReason::ConnectionTermination, response->resetReason());
     // http2.violation.of.messaging.rule
@@ -2590,6 +2683,7 @@ TEST_P(MultiplexedIntegrationTest, InconsistentContentLength) {
 // reset the request.
 TEST_P(MultiplexedIntegrationTest, Reset101SwitchProtocolResponse) {
 #ifdef ENVOY_ENABLE_UHV
+  // TODO(#29071): reject responses with 101 in H/2 and H/3 UHV
   if (GetParam().http2_implementation == Http2Impl::Oghttp2 &&
       downstreamProtocol() == Http::CodecType::HTTP2) {
     return;
@@ -2710,6 +2804,33 @@ TEST_P(MultiplexedIntegrationTest, PerTryTimeoutWhileDownstreamStopsReading) {
   if (!response1->complete()) {
     ASSERT_TRUE(response1->waitForEndStream());
   }
+}
+
+TEST_P(MultiplexedIntegrationTest, ConnectionPoolPerDownstream) {
+  config_helper_.addConfigModifier([](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    bootstrap.mutable_static_resources()
+        ->mutable_clusters(0)
+        ->set_connection_pool_per_downstream_connection(true);
+  });
+
+  initialize();
+  codec_client_ = makeHttpConnection(makeClientConnection((lookupPort("http"))));
+  sendRequestAndWaitForResponse(default_request_headers_, 0, default_response_headers_, 0);
+
+  // Preserve the upstream connection while making sure
+  // sendRequestAndWaitForResponse will wait for a new connection.
+  FakeHttpConnectionPtr upstream_connection_ptr = std::move(fake_upstream_connection_);
+  std::unique_ptr<IntegrationCodecClient> client = std::move(codec_client_);
+
+  codec_client_ = makeHttpConnection(makeClientConnection((lookupPort("http"))));
+  sendRequestAndWaitForResponse(default_request_headers_, 0, default_response_headers_, 0);
+
+  AssertionResult result = upstream_connection_ptr->close();
+  RELEASE_ASSERT(result, result.message());
+  result = upstream_connection_ptr->waitForDisconnect();
+  RELEASE_ASSERT(result, result.message());
+  upstream_connection_ptr.reset();
+  client->close();
 }
 
 // Ordering of inheritance is important here, SocketInterfaceSwap must be

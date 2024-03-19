@@ -46,7 +46,7 @@ public:
   const Network::Address::IpList& tlsKeyLogRemote() const override { return tls_keylog_remote_; };
   const std::string& tlsKeyLogPath() const override { return tls_keylog_path_; };
   AccessLog::AccessLogManager& accessLogManager() const override {
-    return factory_context_.accessLogManager();
+    return factory_context_.serverFactoryContext().accessLogManager();
   }
 
   bool isReady() const override {
@@ -129,6 +129,7 @@ public:
   bool allowRenegotiation() const override { return allow_renegotiation_; }
   size_t maxSessionKeys() const override { return max_session_keys_; }
   const std::string& signingAlgorithmsForTest() const override { return sigalgs_; }
+  bool enforceRsaKeyUsage() const override { return enforce_rsa_key_usage_; }
 
 private:
   static const unsigned DEFAULT_MIN_VERSION;
@@ -142,6 +143,7 @@ private:
 
   const std::string server_name_indication_;
   const bool allow_renegotiation_;
+  const bool enforce_rsa_key_usage_;
   const size_t max_session_keys_;
   const std::string sigalgs_;
 };
@@ -170,6 +172,9 @@ public:
   void setSecretUpdateCallback(std::function<void()> callback) override;
   bool disableStatelessSessionResumption() const override {
     return disable_stateless_session_resumption_;
+  }
+  bool disableStatefulSessionResumption() const override {
+    return disable_stateful_session_resumption_;
   }
 
   bool fullScanCertsOnSNIMismatch() const override { return full_scan_certs_on_sni_mismatch_; }
@@ -203,6 +208,7 @@ private:
 
   absl::optional<std::chrono::seconds> session_timeout_;
   const bool disable_stateless_session_resumption_;
+  const bool disable_stateful_session_resumption_;
   bool full_scan_certs_on_sni_mismatch_;
 };
 

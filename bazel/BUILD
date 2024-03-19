@@ -372,6 +372,23 @@ config_setting(
 )
 
 config_setting(
+    name = "disable_yaml",
+    values = {"define": "envoy_yaml=disabled"},
+)
+
+# The goal here is to allow Envoy to build with this option but it is not yet
+# complete.  See https://github.com/envoyproxy/envoy/issues/27412
+config_setting(
+    name = "disable_exceptions",
+    values = {"define": "envoy_exceptions=disabled"},
+)
+
+config_setting(
+    name = "disable_full_protos",
+    values = {"define": "envoy_full_protos=disabled"},
+)
+
+config_setting(
     name = "disable_envoy_mobile_listener",
     values = {"define": "envoy_mobile_listener=disabled"},
 )
@@ -640,6 +657,11 @@ config_setting(
 )
 
 config_setting(
+    name = "android_system_helper",
+    values = {"define": "system-helper=android"},
+)
+
+config_setting(
     name = "libfuzzer_coverage",
     define_values = {
         "FUZZING_ENGINE": "libfuzzer",
@@ -856,6 +878,15 @@ platform(
         "@platforms//os:ios",
         "@build_bazel_apple_support//constraints:device",
     ],
+)
+
+# A dependency required by python protobuf
+# Envoy does not have any C++ code that includes python.h so this dummy
+# target is enough. However if such code is added in the future when this
+# should be changed to alias "@system_python//:python_headers"
+cc_library(
+    name = "python_headers",
+    visibility = ["//visibility:public"],
 )
 
 # These can be run as follows:

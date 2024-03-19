@@ -2,8 +2,7 @@ agent-ubuntu: ubuntu-22.04
 build-image:
   # Authoritative configuration for build image/s
   repo: envoyproxy/envoy-build-ubuntu
-  # note: this is the sha for the cmake variant
-  sha: 06d3d10a99cce5bf4036be65190f192a30503fa93b9df3c119fd1260d3ed7024
+  sha: 3c8a3ce6f90dcfb5d09dc8f79bb01404d3526d420061f9a176e0a8e91e1e573e
   mobile-sha: f47fb698cfda583769b9d28e8d1c58cfc7774d5da4f31cd8190d8975c3850c7e
   # this is authoritative, but is not currently used in github ci
   gcr-sha: 2a473cd9808182735d54e03b158975389948b9559b8e8fc624cfafbaf7059e62

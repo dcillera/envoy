@@ -48,6 +48,7 @@ cscope.*
 SOURCE_VERSION
 .settings/
 *.sw*
+*.swap*
 tags
 TAGS
 /test/coverage/BUILD
@@ -70,3 +71,6 @@ bazel.output.txt
 **/*.iml
 tools/dev/src
 distribution/custom
+examples/websocket/certs
+/contrib/golang/**/test_data/go.sum
+/contrib/golang/**/test_data/*/go.sum

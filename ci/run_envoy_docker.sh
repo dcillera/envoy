@@ -11,11 +11,10 @@ function is_windows() {
 
 read -ra ENVOY_DOCKER_OPTIONS <<< "${ENVOY_DOCKER_OPTIONS:-}"
 
-# TODO(phlax): uppercase these env vars
-export HTTP_PROXY="${http_proxy:-}"
-export HTTPS_PROXY="${https_proxy:-}"
-export NO_PROXY="${no_proxy:-}"
-export GOPROXY="${go_proxy:-}"
+export HTTP_PROXY="${HTTP_PROXY:-${http_proxy:-}}"
+export HTTPS_PROXY="${HTTPS_PROXY:-${https_proxy:-}}"
+export NO_PROXY="${NO_PROXY:-${no_proxy:-}}"
+export GOPROXY="${GOPROXY:-${go_proxy:-}}"
 
 if is_windows; then
   [[ -z "${IMAGE_NAME}" ]] && IMAGE_NAME="envoyproxy/envoy-build-windows2019"
@@ -64,9 +63,10 @@ else
           && sudo -EHs -u envoybuild bash -c 'cd /source && $*'")
 fi
 
-if is_windows; then
-    # remove cmake prefix
-    ENVOY_BUILD_SHA="$(echo "$ENVOY_BUILD_SHA" | cut -d- -f2)"
+if [[ -n "$ENVOY_DOCKER_PLATFORM" ]]; then
+    echo "Setting Docker platform: ${ENVOY_DOCKER_PLATFORM}"
+    docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+    ENVOY_DOCKER_OPTIONS+=(--platform "$ENVOY_DOCKER_PLATFORM")
 fi
 
 # The IMAGE_ID defaults to the CI hash but can be set to an arbitrary image ID (found with 'docker
@@ -148,14 +148,16 @@ docker run --rm \
        -e ENVOY_TARBALL_DIR \
        -e SYSTEM_PULLREQUEST_PULLREQUESTNUMBER \
        -e GCS_ARTIFACT_BUCKET \
+       -e GITHUB_REF_NAME \
+       -e GITHUB_REF_TYPE \
        -e GITHUB_TOKEN \
        -e GITHUB_APP_ID \
        -e GITHUB_INSTALL_ID \
+       -e MOBILE_DOCS_CHECKOUT_DIR \
        -e BUILD_SOURCEBRANCHNAME \
        -e BAZELISK_BASE_URL \
        -e ENVOY_BUILD_ARCH \
        -e SYSTEM_STAGEDISPLAYNAME \
        -e SYSTEM_JOBDISPLAYNAME \
-       -e SYSTEM_PULLREQUEST_PULLREQUESTNUMBER \
        "${ENVOY_BUILD_IMAGE}" \
        "${START_COMMAND[@]}"

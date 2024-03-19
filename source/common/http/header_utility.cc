@@ -6,6 +6,7 @@
 #include "source/common/common/matchers.h"
 #include "source/common/common/regex.h"
 #include "source/common/common/utility.h"
+#include "source/common/http/character_set_validation.h"
 #include "source/common/http/header_map_impl.h"
 #include "source/common/http/utility.h"
 #include "source/common/protobuf/utility.h"
@@ -196,51 +197,6 @@ bool HeaderUtility::headerValueIsValid(const absl::string_view header_value) {
                                                              http2::adapter::ObsTextOption::kAllow);
 }
 
-namespace {
-// TODO(yanavlasov): This code is copied from the default UHV. As the transition to UHV is
-// completed, replace it with the call to UHV.
-constexpr bool testChar(const std::array<uint32_t, 8>& table, char c) {
-  // CPU cache friendly version of a lookup in a bit table of size 256.
-  // The table is organized as 8 32 bit words.
-  // This function looks up a bit from the `table` at the index `c`.
-  // This function is used to test whether a character `c` is allowed
-  // or not based on the value of a bit at index `c`.
-  uint8_t tmp = static_cast<uint8_t>(c);
-  // The `tmp >> 5` determines which of the 8 uint32_t words has the bit at index `uc`.
-  // The `0x80000000 >> (tmp & 0x1f)` determines the index of the bit within the 32 bit word.
-  return (table[tmp >> 5] & (0x80000000 >> (tmp & 0x1f))) != 0;
-}
-
-// Header name character table.
-// From RFC 9110, https://www.rfc-editor.org/rfc/rfc9110.html#section-5.1:
-//
-// SPELLCHECKER(off)
-// header-field   = field-name ":" OWS field-value OWS
-// field-name     = token
-// token          = 1*tchar
-//
-// tchar          = "!" / "#" / "$" / "%" / "&" / "'" / "*"
-//                / "+" / "-" / "." / "^" / "_" / "`" / "|" / "~"
-//                / DIGIT / ALPHA
-// SPELLCHECKER(on)
-constexpr std::array<uint32_t, 8> kGenericHeaderNameCharTable = {
-    // control characters
-    0b00000000000000000000000000000000,
-    // !"#$%&'()*+,-./0123456789:;<=>?
-    0b01011111001101101111111111000000,
-    //@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_
-    0b01111111111111111111111111100011,
-    //`abcdefghijklmnopqrstuvwxyz{|}~
-    0b11111111111111111111111111101010,
-    // extended ascii
-    0b00000000000000000000000000000000,
-    0b00000000000000000000000000000000,
-    0b00000000000000000000000000000000,
-    0b00000000000000000000000000000000,
-};
-
-} // namespace
-
 bool HeaderUtility::headerNameIsValid(const absl::string_view header_key) {
   if (!header_key.empty() && header_key[0] == ':') {
     // For HTTP/2 pseudo header, use the HTTP/2 semantics for checking validity
@@ -255,7 +211,7 @@ bool HeaderUtility::headerNameIsValid(const absl::string_view header_key) {
   // TODO(yanavlasov): make validation in HTTP/2 case stricter.
   bool is_valid = true;
   for (auto iter = header_key.begin(); iter != header_key.end() && is_valid; ++iter) {
-    is_valid &= testChar(kGenericHeaderNameCharTable, *iter);
+    is_valid &= testCharInTable(kGenericHeaderNameCharTable, *iter);
   }
   return is_valid;
 }
@@ -283,11 +239,68 @@ bool HeaderUtility::isConnect(const RequestHeaderMap& headers) {
   return headers.Method() && headers.Method()->value() == Http::Headers::get().MethodValues.Connect;
 }
 
+bool HeaderUtility::isConnectUdpRequest(const RequestHeaderMap& headers) {
+  return headers.Upgrade() && absl::EqualsIgnoreCase(headers.getUpgradeValue(),
+                                                     Http::Headers::get().UpgradeValues.ConnectUdp);
+}
+
+bool HeaderUtility::isConnectUdpResponse(const ResponseHeaderMap& headers) {
+  // In connect-udp case, Envoy will transform the H2 headers to H1 upgrade headers.
+  // A valid response should have SwitchingProtocol status and connect-udp upgrade.
+  return headers.Upgrade() && Utility::getResponseStatus(headers) == 101 &&
+         absl::EqualsIgnoreCase(headers.getUpgradeValue(),
+                                Http::Headers::get().UpgradeValues.ConnectUdp);
+}
+
 bool HeaderUtility::isConnectResponse(const RequestHeaderMap* request_headers,
                                       const ResponseHeaderMap& response_headers) {
   return request_headers && isConnect(*request_headers) &&
          static_cast<Http::Code>(Http::Utility::getResponseStatus(response_headers)) ==
              Http::Code::OK;
+}
+
+bool HeaderUtility::rewriteAuthorityForConnectUdp(RequestHeaderMap& headers) {
+  // Per RFC 9298, the URI template must only contain ASCII characters in the range 0x21-0x7E.
+  absl::string_view path = headers.getPathValue();
+  for (char c : path) {
+    unsigned char ascii_code = static_cast<unsigned char>(c);
+    if (ascii_code < 0x21 || ascii_code > 0x7e) {
+      ENVOY_LOG_MISC(warn, "CONNECT-UDP request with a bad character in the path {}", path);
+      return false;
+    }
+  }
+
+  // Extract target host and port from path using default template.
+  if (!absl::StartsWith(path, "/.well-known/masque/udp/")) {
+    ENVOY_LOG_MISC(warn, "CONNECT-UDP request path is not a well-known URI: {}", path);
+    return false;
+  }
+
+  std::vector<absl::string_view> path_split = absl::StrSplit(path, '/');
+  if (path_split.size() != 7 || path_split[4].empty() || path_split[5].empty() ||
+      !path_split[6].empty()) {
+    ENVOY_LOG_MISC(warn, "CONNECT-UDP request with a malformed URI template in the path {}", path);
+    return false;
+  }
+
+  // Utility::PercentEncoding::decode never returns an empty string if the input argument is not
+  // empty.
+  std::string target_host = Utility::PercentEncoding::decode(path_split[4]);
+  // Per RFC 9298, IPv6 Zone ID is not supported.
+  if (target_host.find('%') != std::string::npos) {
+    ENVOY_LOG_MISC(warn, "CONNECT-UDP request with a non-escpaed char (%) in the path {}", path);
+    return false;
+  }
+  std::string target_port = Utility::PercentEncoding::decode(path_split[5]);
+
+  // If the host is an IPv6 address, surround the address with square brackets.
+  in6_addr sin6_addr;
+  bool is_ipv6 = (inet_pton(AF_INET6, target_host.c_str(), &sin6_addr) == 1);
+  std::string new_host =
+      absl::StrCat((is_ipv6 ? absl::StrCat("[", target_host, "]") : target_host), ":", target_port);
+  headers.setHost(new_host);
+
+  return true;
 }
 
 #ifdef ENVOY_ENABLE_HTTP_DATAGRAMS
@@ -339,6 +352,19 @@ void HeaderUtility::stripTrailingHostDot(RequestHeaderMap& headers) {
   if (host[dot_index + 1] == ':') {
     headers.setHost(absl::StrCat(host.substr(0, dot_index), host.substr(dot_index + 1)));
   }
+}
+
+bool HeaderUtility::hostHasPort(absl::string_view original_host) {
+  const absl::string_view::size_type port_start = getPortStart(original_host);
+  const absl::string_view port_str = original_host.substr(port_start + 1);
+  if (port_start == absl::string_view::npos) {
+    return false;
+  }
+  uint32_t port = 0;
+  if (!absl::SimpleAtoi(port_str, &port)) {
+    return false;
+  }
+  return true;
 }
 
 absl::optional<uint32_t> HeaderUtility::stripPortFromHost(RequestHeaderMap& headers,

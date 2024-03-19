@@ -46,7 +46,10 @@ struct ValidationResults {
 class CertValidator {
 public:
   // Wraps cert validation parameters added from time to time.
-  struct ExtraValidationContext {};
+  struct ExtraValidationContext {
+    // The pointer to transport socket callbacks.
+    Network::TransportSocketCallbacks* callbacks;
+  };
 
   virtual ~CertValidator() = default;
 
@@ -86,12 +89,12 @@ public:
    * @param is_server whether the validation is on server side.
    * @return ValidationResult the validation status and error messages if there is any.
    */
-//  virtual ValidationResults
-//  doVerifyCertChain(STACK_OF(X509)& cert_chain, Ssl::ValidateResultCallbackPtr callback,
-//                    const Network::TransportSocketOptionsConstSharedPtr& transport_socket_options,
-//                    SSL_CTX& ssl_ctx, const ExtraValidationContext& validation_context,
-//                    bool is_server, absl::string_view host_name) PURE;
-//
+  virtual ValidationResults
+  doVerifyCertChain(STACK_OF(X509)& cert_chain, Ssl::ValidateResultCallbackPtr callback,
+                    const Network::TransportSocketOptionsConstSharedPtr& transport_socket_options,
+                    SSL_CTX& ssl_ctx, const ExtraValidationContext& validation_context,
+                    bool is_server, absl::string_view host_name) PURE;
+
   /**
    * Called to initialize all ssl contexts
    *

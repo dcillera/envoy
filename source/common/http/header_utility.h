@@ -165,10 +165,26 @@ public:
   static bool isConnect(const RequestHeaderMap& headers);
 
   /**
+   * @brief a helper function to determine if the headers represent a CONNECT-UDP request.
+   */
+  static bool isConnectUdpRequest(const RequestHeaderMap& headers);
+
+  /**
+   * @brief a helper function to determine if the headers represent a CONNECT-UDP response.
+   */
+  static bool isConnectUdpResponse(const ResponseHeaderMap& headers);
+
+  /**
    * @brief a helper function to determine if the headers represent an accepted CONNECT response.
    */
   static bool isConnectResponse(const RequestHeaderMap* request_headers,
                                 const ResponseHeaderMap& response_headers);
+
+  /**
+   * @brief Rewrites the authority header field by parsing the path using the default CONNECT-UDP
+   * URI template. Returns true if the parsing was successful, otherwise returns false.
+   */
+  static bool rewriteAuthorityForConnectUdp(RequestHeaderMap& headers);
 
 #ifdef ENVOY_ENABLE_HTTP_DATAGRAMS
   /**
@@ -207,6 +223,11 @@ public:
    * @brief Remove the trailing host dot from host/authority header.
    */
   static void stripTrailingHostDot(RequestHeaderMap& headers);
+
+  /**
+   * @return bool true if the provided host has a port, false otherwise.
+   */
+  static bool hostHasPort(absl::string_view host);
 
   /**
    * @brief Remove the port part from host/authority header if it is equal to provided port.

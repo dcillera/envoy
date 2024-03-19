@@ -8,8 +8,9 @@ load(
     "envoy_cc_win32_library",
     "envoy_package",
     "envoy_select_enable_http3",
+    "envoy_select_signal_trace",
 )
-load("//bazel:repositories.bzl", "PPC_SKIP_TARGETS", "WINDOWS_SKIP_TARGETS")
+load("//bazel:repositories.bzl", "NO_HTTP3_SKIP_TARGETS", "PPC_SKIP_TARGETS", "WINDOWS_SKIP_TARGETS")
 load("//source/extensions:all_extensions.bzl", "envoy_all_core_extensions", "envoy_all_extensions")
 
 licenses(["notice"])  # Apache 2
@@ -45,6 +46,7 @@ envoy_cc_library(
     ] + select({
         "//bazel:windows_x86_64": envoy_all_extensions(WINDOWS_SKIP_TARGETS),
         "//bazel:linux_ppc": envoy_all_extensions(PPC_SKIP_TARGETS),
+        "//bazel:disable_http3": envoy_all_extensions(NO_HTTP3_SKIP_TARGETS),
         "//conditions:default": envoy_all_extensions(),
     }),
 )
@@ -77,13 +79,10 @@ envoy_cc_library(
         "//source/common/thread_local:thread_local_lib",
         "//source/server:hot_restart_lib",
         "//source/server:hot_restart_nop_lib",
-    ] + select({
-        "//bazel:disable_signal_trace": [],
-        "//conditions:default": [
-            ":terminate_handler_lib",
-            "//source/common/signal:sigaction_lib",
-        ],
-    }),
+    ] + envoy_select_signal_trace([
+        "//source/common/signal:sigaction_lib",
+        ":terminate_handler_lib",
+    ]),
 )
 
 envoy_cc_library(
@@ -107,13 +106,10 @@ envoy_cc_library(
         "//source/server:hot_restart_lib",
         "//source/server:hot_restart_nop_lib",
         "//source/server/config_validation:server_lib",
-    ] + select({
-        "//bazel:disable_signal_trace": [],
-        "//conditions:default": [
-            ":terminate_handler_lib",
-            "//source/common/signal:sigaction_lib",
-        ],
-    }),
+    ] + envoy_select_signal_trace([
+        "//source/common/signal:sigaction_lib",
+        ":terminate_handler_lib",
+    ]),
 )
 
 # provides a library target for Envoy server builds with the versioning information set up correctly.
@@ -180,13 +176,10 @@ envoy_cc_library(
         "//source/server:hot_restart_lib",
         "//source/server:hot_restart_nop_lib",
         "//source/server/config_validation:server_lib",
-    ] + select({
-        "//bazel:disable_signal_trace": [],
-        "//conditions:default": [
-            ":terminate_handler_lib",
-            "//source/common/signal:sigaction_lib",
-        ],
-    }),
+    ] + envoy_select_signal_trace([
+        "//source/common/signal:sigaction_lib",
+        ":terminate_handler_lib",
+    ]),
 )
 
 envoy_cc_library(

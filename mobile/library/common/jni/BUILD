@@ -1,5 +1,5 @@
-load("//bazel:android_debug_info.bzl", "android_debug_info")
 load("@envoy//bazel:envoy_build_system.bzl", "envoy_mobile_defines", "envoy_package")
+load("//bazel:android_debug_info.bzl", "android_debug_info")
 
 licenses(["notice"])  # Apache 2
 
@@ -171,8 +171,8 @@ cc_library(
         "android_jni_utility.h",
     ],
     deps = [
-        "@envoy//source/common/common:assert_lib",
         "//library/common/types:c_types_lib",
+        "@envoy//source/common/common:assert_lib",
     ] + select({
         "@envoy//bazel:android": [
             ":jni_support_lib",

@@ -17,18 +17,6 @@ def envoy_mobile_repositories():
     python_repos()
 
 def upstream_envoy_overrides():
-    # Workaround due to a Detekt version compatibility with protobuf: https://github.com/envoyproxy/envoy-mobile/issues/1869
-    http_archive(
-        name = "com_google_protobuf",
-        patch_args = ["-p1"],
-        patches = [
-            "@envoy_mobile//bazel:protobuf.patch",
-        ],
-        sha256 = "d7371dc2d46fddac1af8cb27c0394554b068768fc79ecaf5be1a1863e8ff3392",
-        strip_prefix = "protobuf-3.16.0",
-        urls = ["https://github.com/protocolbuffers/protobuf/releases/download/v3.16.0/protobuf-all-3.16.0.tar.gz"],
-    )
-
     # Workaround old NDK version breakages https://github.com/envoyproxy/envoy-mobile/issues/934
     http_archive(
         name = "com_github_libevent_libevent",
@@ -38,31 +26,7 @@ def upstream_envoy_overrides():
         build_file_content = """filegroup(name = "all", srcs = glob(["**"]), visibility = ["//visibility:public"])""",
     )
 
-    # This should be kept in sync with Envoy itself, we just need to apply this patch
-    # Remove this once https://boringssl-review.googlesource.com/c/boringssl/+/37804 is in master-with-bazel
-    http_archive(
-        name = "boringssl",
-        sha256 = "579cb415458e9f3642da0a39a72f79fdfe6dc9c1713b3a823f1e276681b9703e",
-        strip_prefix = "boringssl-648cbaf033401b7fe7acdce02f275b06a88aab5c",
-        urls = ["https://github.com/google/boringssl/archive/648cbaf033401b7fe7acdce02f275b06a88aab5c.tar.gz"],
-    )
-
 def swift_repos():
-    http_archive(
-        name = "build_bazel_rules_apple",
-        sha256 = "687644bf48ccf91286f31c4ec26cf6591800b39bee8a630438626fc9bb4042de",
-        strip_prefix = "rules_apple-a0f8748ce89698a599149d984999eaefd834c004",
-        url = "https://github.com/bazelbuild/rules_apple/archive/a0f8748ce89698a599149d984999eaefd834c004.tar.gz",
-    )
-
-    # https://github.com/bazelbuild/rules_swift/pull/922
-    http_archive(
-        name = "build_bazel_rules_swift",
-        sha256 = "422558831da7719658ab0ffb3c994d92ddc6541e3610a751613a324bb5d10ffe",
-        strip_prefix = "rules_swift-e769f8d6a4adae93c244f244480a3ae740f24384",
-        url = "https://github.com/bazelbuild/rules_swift/archive/e769f8d6a4adae93c244f244480a3ae740f24384.tar.gz",
-    )
-
     http_archive(
         name = "DrString",
         build_file_content = """exports_files(["drstring"])""",

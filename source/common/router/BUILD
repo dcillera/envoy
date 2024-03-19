@@ -96,6 +96,7 @@ envoy_cc_library(
         "//source/common/common:assert_lib",
         "//source/common/common:empty_string",
         "//source/common/common:matchers_lib",
+        "//source/common/config:datasource_lib",
         "//source/common/http:headers_lib",
         "//source/common/http:utility_lib",
         "//source/common/protobuf:utility_lib",
@@ -226,6 +227,7 @@ envoy_cc_library(
         "//envoy/config:config_provider_interface",
         "//envoy/config:subscription_interface",
         "//envoy/router:route_config_provider_manager_interface",
+        "//envoy/router:scopes_interface",
         "//envoy/stats:stats_interface",
         "//source/common/common:assert_lib",
         "//source/common/common:cleanup_lib",
@@ -334,7 +336,7 @@ envoy_cc_library(
         "//source/common/stream_info:uint32_accessor_lib",
         "//source/common/tracing:http_tracer_lib",
         "//source/common/upstream:load_balancer_lib",
-        "//source/common/upstream:upstream_http_factory_context_lib",
+        "//source/common/upstream:upstream_factory_context_lib",
         "//source/extensions/common/proxy_protocol:proxy_protocol_header_lib",
         "//source/extensions/filters/http/common:factory_base_lib",
         "@envoy_api//envoy/extensions/filters/http/router/v3:pkg_cc_proto",
@@ -430,7 +432,6 @@ envoy_cc_library(
 
 envoy_cc_library(
     name = "header_formatter_lib",
-    srcs = ["header_formatter.cc"],
     hdrs = ["header_formatter.h"],
     external_deps = ["abseil_optional"],
     deps = [

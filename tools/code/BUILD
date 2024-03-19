@@ -1,6 +1,11 @@
 load("@aspect_bazel_lib//lib:jq.bzl", "jq")
 load("@envoy_repo//:path.bzl", "PATH")
 load("//bazel:envoy_build_system.bzl", "envoy_package")
+load(
+    "//test/extensions/filters/network/common/fuzz:config.bzl",
+    "READFILTER_FUZZ_FILTERS",
+    "READFILTER_NOFUZZ_FILTERS",
+)
 load("//tools/base:envoy_python.bzl", "envoy_entry_point")
 load("//tools/python:namespace.bzl", "envoy_py_namespace")
 
@@ -9,6 +14,11 @@ licenses(["notice"])  # Apache 2
 envoy_package()
 
 envoy_py_namespace()
+
+FUZZ_FILTER_COUNT = (
+    len(READFILTER_FUZZ_FILTERS) +
+    len(READFILTER_NOFUZZ_FILTERS)
+)
 
 jq(
     name = "extensions_build_config",
@@ -27,6 +37,7 @@ envoy_entry_point(
         "--codeowners=$(location //:CODEOWNERS)",
         "--owners=$(location //:OWNERS.md)",
         "--extensions_build_config=$(location :extensions_build_config)",
+        "--extensions_fuzzed_count=%s" % FUZZ_FILTER_COUNT,
         "--path=%s" % PATH,
         "-b shellcheck:$(location @com_github_aignas_rules_shellcheck//:shellcheck)",
         "-b gofmt:$(location @go_sdk//:bin/gofmt)",
@@ -47,16 +58,21 @@ genrule(
     cmd = """
     $(location :check) \
         --fix \
+        -l warn \
         -v warn \
         -x mobile/dist/envoy-pom.xml \
         --codeowners=$(location //:CODEOWNERS) \
         --owners=$(location //:OWNERS.md) \
         --extensions_build_config=$(location :extensions_build_config) \
+        --extensions_fuzzed_count=%s \
         --path=%s \
         -b shellcheck:$(location @com_github_aignas_rules_shellcheck//:shellcheck) \
         -b gofmt:$(location @go_sdk//:bin/gofmt) \
       > $@ 2>&1 || :
-    """ % PATH,
+    """ % (
+        FUZZ_FILTER_COUNT,
+        PATH,
+    ),
     tags = ["no-remote-exec"],
     tools = [
         ":check",

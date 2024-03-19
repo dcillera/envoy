@@ -232,5 +232,6 @@ envoy_cc_library(
         "ssl",
         "bssl_wrapper_lib",
         "openssl_includes_lib",
+        "abseil_strings",
     ],
 )

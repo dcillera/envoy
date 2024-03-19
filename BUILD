@@ -28,6 +28,12 @@ alias(
     actual = "//source/exe:envoy-static.stripped",
 )
 
+filegroup(
+    name = "clang_tidy_config",
+    srcs = [".clang-tidy"],
+    visibility = ["//visibility:public"],
+)
+
 # These two definitions exist to help reduce Envoy upstream core code depending on extensions.
 # To avoid visibility problems, see notes in source/extensions/extensions_build_config.bzl
 #
@@ -87,5 +93,6 @@ envoy_cc_library(
     external_deps = [
         "ssl",
         "bssl_wrapper_lib",
+        "abseil_strings",
     ],
 )

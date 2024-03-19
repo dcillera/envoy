@@ -20,6 +20,7 @@
 #include "datadog/sampling_priority.h"
 #include "datadog/span_config.h"
 #include "datadog/trace_segment.h"
+#include "datadog/tracer_config.h"
 
 namespace Envoy {
 namespace Extensions {
@@ -75,8 +76,9 @@ Tracer::Tracer(const std::string& collector_cluster, const std::string& collecto
 // Tracer::TracingDriver
 
 Tracing::SpanPtr Tracer::startSpan(const Tracing::Config&, Tracing::TraceContext& trace_context,
-                                   const std::string& operation_name, SystemTime start_time,
-                                   const Tracing::Decision tracing_decision) {
+                                   const StreamInfo::StreamInfo& stream_info,
+                                   const std::string& operation_name,
+                                   Tracing::Decision tracing_decision) {
   ThreadLocalTracer& thread_local_tracer = **thread_local_slot_;
   if (!thread_local_tracer.tracer) {
     return std::make_unique<Tracing::NullSpan>();
@@ -91,10 +93,29 @@ Tracing::SpanPtr Tracer::startSpan(const Tracing::Config&, Tracing::TraceContext
   // here we hard-code.
   span_config.name = "envoy.proxy";
   span_config.resource = operation_name;
-  span_config.start = estimateTime(start_time);
+  span_config.start = estimateTime(stream_info.startTime());
 
-  datadog::tracing::Tracer& tracer = *thread_local_tracer.tracer;
   TraceContextReader reader{trace_context};
+  datadog::tracing::Span span =
+      extract_or_create_span(*thread_local_tracer.tracer, span_config, reader);
+
+  // If we did not extract a sampling decision, and if Envoy is telling us to
+  // drop the trace, then we treat that as a "user drop" (manual override).
+  //
+  // If Envoy is telling us to keep the trace, then we leave it up to the
+  // tracer's internal sampler (which might decide to drop the trace anyway).
+  if (!span.trace_segment().sampling_decision().has_value() && !tracing_decision.traced) {
+    span.trace_segment().override_sampling_priority(
+        int(datadog::tracing::SamplingPriority::USER_DROP));
+  }
+
+  return std::make_unique<Span>(std::move(span));
+}
+
+datadog::tracing::Span
+Tracer::extract_or_create_span(datadog::tracing::Tracer& tracer,
+                               const datadog::tracing::SpanConfig& span_config,
+                               const datadog::tracing::DictReader& reader) {
   datadog::tracing::Expected<datadog::tracing::Span> maybe_span =
       tracer.extract_span(reader, span_config);
   if (datadog::tracing::Error* error = maybe_span.if_error()) {
@@ -110,23 +131,10 @@ Tracing::SpanPtr Tracer::startSpan(const Tracing::Config&, Tracing::TraceContext
           int(error->code), error->message);
     }
 
-    maybe_span = tracer.create_span(span_config);
+    return tracer.create_span(span_config);
   }
 
-  ASSERT(maybe_span);
-  datadog::tracing::Span& span = *maybe_span;
-
-  // If Envoy is telling us to drop the trace, then we treat that as a
-  // "user drop" (manual override).
-  //
-  // If Envoy is telling us to keep the trace, then we leave it up to the
-  // tracer's internal sampler (which might decide to drop the trace anyway).
-  if (!tracing_decision.traced) {
-    span.trace_segment().override_sampling_priority(
-        int(datadog::tracing::SamplingPriority::USER_DROP));
-  }
-
-  return std::make_unique<Span>(std::move(span));
+  return std::move(*maybe_span);
 }
 
 } // namespace Datadog

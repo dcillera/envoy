@@ -111,6 +111,39 @@ INSTANTIATE_TEST_SUITE_P(
                           "_", std::get<1>(params.param) ? "streaming_shadow" : "buffered_shadow");
     });
 
+TEST_P(ShadowPolicyIntegrationTest, Basic) {
+  initialConfigSetup("cluster_1", "");
+  initialize();
+
+  sendRequestAndValidateResponse(1);
+  sendRequestAndValidateResponse(2);
+
+  test_server_->waitForCounterEq("cluster.cluster_1.upstream_rq_200", 2);
+  EXPECT_EQ(1, test_server_->counter("cluster.cluster_0.upstream_cx_total")->value());
+  EXPECT_EQ(1, test_server_->counter("cluster.cluster_1.upstream_cx_total")->value());
+}
+
+TEST_P(ShadowPolicyIntegrationTest, BasicWithLimits) {
+  initialConfigSetup("cluster_1", "");
+  config_helper_.addConfigModifier([](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    bootstrap.mutable_static_resources()
+        ->mutable_clusters(0)
+        ->set_connection_pool_per_downstream_connection(true);
+    bootstrap.mutable_static_resources()
+        ->mutable_clusters(1)
+        ->set_connection_pool_per_downstream_connection(true);
+  });
+  initialize();
+
+  sendRequestAndValidateResponse(1);
+  sendRequestAndValidateResponse(2);
+
+  test_server_->waitForCounterEq("cluster.cluster_1.upstream_rq_200", 2);
+  EXPECT_EQ(2, test_server_->counter("cluster.cluster_0.upstream_cx_total")->value());
+  // https://github.com/envoyproxy/envoy/issues/26820
+  EXPECT_EQ(1, test_server_->counter("cluster.cluster_1.upstream_cx_total")->value());
+}
+
 TEST_P(ShadowPolicyIntegrationTest, RequestMirrorPolicyWithDownstreamReset) {
   if (!streaming_shadow_) {
     GTEST_SKIP() << "Not applicable for non-streaming shadows.";

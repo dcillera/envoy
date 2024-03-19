@@ -32,10 +32,9 @@ public:
 
 TEST_F(IoHandleBioTest, WriteError) {
   EXPECT_CALL(io_handle_, writev(_, 1))
-      .WillOnce(Return(testing::ByMove(
-          Api::IoCallUint64Result(0, Api::IoErrorPtr(new Network::IoSocketError(100),
-                                                     Network::IoSocketError::deleteIoError)))));
-  EXPECT_EQ(-1, BIO_write(bio_, nullptr, 10));
+      .WillOnce(
+          Return(testing::ByMove(Api::IoCallUint64Result(0, Network::IoSocketError::create(100)))));
+  EXPECT_EQ(-1, bio_->method->bwrite(bio_, nullptr, 10));
   const int err = ERR_get_error();
   EXPECT_EQ(ERR_GET_LIB(err), ERR_LIB_SYS);
   EXPECT_EQ(ERR_GET_REASON(err), 100);
@@ -61,9 +60,8 @@ TEST_F(IoHandleBioTest, TestMiscApis) {
   EXPECT_EQ(ret, 1);
 
   EXPECT_CALL(io_handle_, close())
-      .WillOnce(Return(testing::ByMove(Api::IoCallUint64Result{
-          0, Api::IoErrorPtr(nullptr, Network::IoSocketError::deleteIoError)})));
-  BIO_set_init(bio_, 1);
+      .WillOnce(Return(testing::ByMove(Api::IoCallUint64Result{0, Api::IoError::none()})));
+  bio_->init = 1;
 }
 
 } // namespace Tls

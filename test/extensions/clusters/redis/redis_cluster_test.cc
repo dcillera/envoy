@@ -31,7 +31,6 @@
 
 using testing::_;
 using testing::ContainerEq;
-using testing::Eq;
 using testing::NiceMock;
 using testing::Ref;
 using testing::Return;
@@ -106,7 +105,9 @@ public:
   MOCK_METHOD(Extensions::NetworkFilters::Common::Redis::Client::Client*, create_, (std::string));
 
 protected:
-  RedisClusterTest() : api_(Api::createApiForTest(stats_store_, random_)) {}
+  RedisClusterTest() : api_(Api::createApiForTest(stats_store_, random_)) {
+    ON_CALL(server_context_, api()).WillByDefault(testing::ReturnRef(*api_));
+  }
 
   std::list<std::string> hostListToAddresses(const Upstream::HostVector& hosts) {
     std::list<std::string> addresses;
@@ -123,20 +124,19 @@ protected:
     NiceMock<Upstream::Outlier::EventLoggerSharedPtr> outlier_event_logger;
 
     Upstream::ClusterFactoryContextImpl cluster_factory_context(
-        server_context_, server_context_.cluster_manager_, stats_store_,
+        server_context_, server_context_.cluster_manager_,
         [this]() -> Network::DnsResolverSharedPtr { return this->dns_resolver_; },
-        ssl_context_manager_, std::move(outlier_event_logger), false, validation_visitor_);
+        ssl_context_manager_, std::move(outlier_event_logger), false);
 
     envoy::extensions::clusters::redis::v3::RedisClusterConfig config;
     Config::Utility::translateOpaqueConfig(cluster_config.cluster_type().typed_config(),
                                            ProtobufMessage::getStrictValidationVisitor(), config);
     cluster_callback_ = std::make_shared<NiceMock<MockClusterSlotUpdateCallBack>>();
     cluster_ = std::make_shared<RedisCluster>(
-        server_context_, cluster_config,
+        cluster_config,
         TestUtility::downcastAndValidate<
             const envoy::extensions::clusters::redis::v3::RedisClusterConfig&>(config),
-        cluster_factory_context, *this, server_context_.cluster_manager_, runtime_, *api_,
-        dns_resolver_, false, cluster_callback_);
+        cluster_factory_context, *this, dns_resolver_, cluster_callback_);
     // This allows us to create expectation on cluster slot response without waiting for
     // makeRequest.
     pool_callbacks_ = &cluster_->redis_discovery_session_;
@@ -146,7 +146,7 @@ protected:
         });
   }
 
-  void setupFactoryFromV3Yaml(const std::string& yaml) {
+  absl::Status setupFactoryFromV3Yaml(const std::string& yaml, bool allow_failure = false) {
     envoy::config::cluster::v3::Cluster cluster_config = Upstream::parseClusterFromV3Yaml(yaml);
 
     envoy::extensions::clusters::redis::v3::RedisClusterConfig config;
@@ -157,13 +157,15 @@ protected:
     NiceMock<Upstream::Outlier::EventLoggerSharedPtr> outlier_event_logger;
     NiceMock<Envoy::Api::MockApi> api;
     Upstream::ClusterFactoryContextImpl cluster_factory_context(
-        server_context_, server_context_.cluster_manager_, stats_store_,
+        server_context_, server_context_.cluster_manager_,
         [this]() -> Network::DnsResolverSharedPtr { return this->dns_resolver_; },
-        ssl_context_manager_, std::move(outlier_event_logger), false, validation_visitor_);
+        ssl_context_manager_, std::move(outlier_event_logger), false);
 
     RedisClusterFactory factory = RedisClusterFactory();
-    factory.createClusterWithConfig(server_context_, cluster_config, config,
-                                    cluster_factory_context);
+    auto status =
+        factory.createClusterWithConfig(cluster_config, config, cluster_factory_context).status();
+    ASSERT(allow_failure || status.ok());
+    return status;
   }
 
   void expectResolveDiscovery(Network::DnsLookupFamily dns_lookup_family,
@@ -675,17 +677,17 @@ protected:
   }
 
   NiceMock<Server::Configuration::MockServerFactoryContext> server_context_;
-  Stats::TestUtil::TestStore stats_store_;
+  Stats::TestUtil::TestStore& stats_store_ = server_context_.store_;
+  NiceMock<Random::MockRandomGenerator> random_;
+  Api::ApiPtr api_;
+
   Ssl::MockContextManager ssl_context_manager_;
   std::shared_ptr<NiceMock<Network::MockDnsResolver>> dns_resolver_{
       new NiceMock<Network::MockDnsResolver>};
-  NiceMock<Random::MockRandomGenerator> random_;
   Event::MockTimer* resolve_timer_;
   ReadyWatcher membership_updated_;
   ReadyWatcher initialized_;
-  NiceMock<Runtime::MockLoader> runtime_;
   NiceMock<ProtobufMessage::MockValidationVisitor> validation_visitor_;
-  Api::ApiPtr api_;
   std::shared_ptr<Upstream::MockClusterMockPrioritySet> hosts_;
   Upstream::MockHealthCheckEventLogger* event_logger_{};
   Event::MockTimer* interval_timer_{};
@@ -1094,12 +1096,13 @@ TEST_F(RedisClusterTest, FactoryInitNotRedisClusterTypeFailure) {
         cluster_refresh_timeout: 0.25s
   )EOF";
 
-  EXPECT_THROW_WITH_MESSAGE(setupFactoryFromV3Yaml(basic_yaml_hosts), EnvoyException,
-                            "Redis cluster can only created with redis cluster type.");
+  auto status = setupFactoryFromV3Yaml(basic_yaml_hosts, true);
+  ASSERT_FALSE(status.ok());
+  EXPECT_EQ(status.message(), "Redis cluster can only created with redis cluster type.");
 }
 
 TEST_F(RedisClusterTest, FactoryInitRedisClusterTypeSuccess) {
-  setupFactoryFromV3Yaml(BasicConfig);
+  ASSERT_TRUE(setupFactoryFromV3Yaml(BasicConfig).ok());
 }
 
 TEST_F(RedisClusterTest, RedisErrorResponse) {

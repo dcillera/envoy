@@ -23,7 +23,7 @@
 #include "envoy/router/path_matcher.h"
 #include "envoy/router/path_rewriter.h"
 #include "envoy/tcp/conn_pool.h"
-#include "envoy/tracing/http_tracer.h"
+#include "envoy/tracing/tracer.h"
 #include "envoy/type/v3/percent.pb.h"
 #include "envoy/upstream/resource_manager.h"
 #include "envoy/upstream/retry.h"
@@ -110,11 +110,6 @@ public:
    */
   virtual void rewritePathHeader(Http::RequestHeaderMap& headers,
                                  bool insert_envoy_original_path) const PURE;
-
-  /**
-   * @return std::string& the name of the route.
-   */
-  virtual const std::string& routeName() const PURE;
 };
 
 /**
@@ -604,7 +599,7 @@ public:
 
   static VirtualClusterStats generateStats(Stats::Scope& scope,
                                            const VirtualClusterStatNames& stat_names) {
-    return VirtualClusterStats(stat_names, scope);
+    return {stat_names, scope};
   }
 };
 
@@ -682,6 +677,18 @@ public:
   virtual void traversePerFilterConfig(
       const std::string& filter_name,
       std::function<void(const Router::RouteSpecificFilterConfig&)> cb) const PURE;
+
+  /**
+   * @return const envoy::config::core::v3::Metadata& return the metadata provided in the config for
+   * this virtual host.
+   */
+  virtual const envoy::config::core::v3::Metadata& metadata() const PURE;
+
+  /**
+   * @return const Envoy::Config::TypedMetadata& return the typed metadata provided in the config
+   * for this virtual host.
+   */
+  virtual const Envoy::Config::TypedMetadata& typedMetadata() const PURE;
 };
 
 /**
@@ -1094,11 +1101,6 @@ public:
   virtual const ConnectConfigOptRef connectConfig() const PURE;
 
   /**
-   * @return std::string& the name of the route.
-   */
-  virtual const std::string& routeName() const PURE;
-
-  /**
    * @return RouteStatsContextOptRef the config needed to generate route level stats.
    */
   virtual const RouteStatsContextOptRef routeStatsContext() const PURE;
@@ -1200,6 +1202,15 @@ public:
   virtual const RouteTracing* tracingConfig() const PURE;
 
   /**
+   * Check if the filter is disabled for this route.
+   * @param config_name supplies the name of the filter config in the HTTP filter chain. This name
+   * may be different from the filter extension qualified name.
+   * @return true if the filter is disabled for this route, false if the filter is enabled.
+   *         nullopt if no decision can be made explicitly for the filter.
+   */
+  virtual absl::optional<bool> filterDisabled(absl::string_view config_name) const PURE;
+
+  /**
    * This is a helper to get the route's per-filter config if it exists, up along the config
    * hierarchy(Route --> VirtualHost --> RouteConfiguration). Or nullptr if none of them exist.
    */
@@ -1227,6 +1238,11 @@ public:
    * for this route.
    */
   virtual const Envoy::Config::TypedMetadata& typedMetadata() const PURE;
+
+  /**
+   * @return std::string& the name of the route.
+   */
+  virtual const std::string& routeName() const PURE;
 };
 
 using RouteConstSharedPtr = std::shared_ptr<const Route>;
@@ -1310,6 +1326,18 @@ public:
    * TODO(dio): To allow overrides at different levels (e.g. per-route, virtual host, etc).
    */
   virtual uint32_t maxDirectResponseBodySizeBytes() const PURE;
+
+  /**
+   * @return const envoy::config::core::v3::Metadata& return the metadata provided in the config for
+   * this route configuration.
+   */
+  virtual const envoy::config::core::v3::Metadata& metadata() const PURE;
+
+  /**
+   * @return const Envoy::Config::TypedMetadata& return the typed metadata provided in the config
+   * for this route configuration.
+   */
+  virtual const Envoy::Config::TypedMetadata& typedMetadata() const PURE;
 };
 
 /**
@@ -1387,6 +1415,11 @@ public:
    * @return optionally returns the host for the connection pool.
    */
   virtual Upstream::HostDescriptionConstSharedPtr host() const PURE;
+
+  /**
+   * @return returns if the connection pool was iniitalized successfully.
+   */
+  virtual bool valid() const PURE;
 };
 
 /**
@@ -1515,6 +1548,11 @@ using GenericConnPoolPtr = std::unique_ptr<GenericConnPool>;
  */
 class GenericConnPoolFactory : public Envoy::Config::TypedFactory {
 public:
+  /*
+   * Protocol used by the upstream sockets.
+   */
+  enum class UpstreamProtocol { HTTP, TCP, UDP };
+
   ~GenericConnPoolFactory() override = default;
 
   /*
@@ -1522,7 +1560,8 @@ public:
    * @return may be null
    */
   virtual GenericConnPoolPtr
-  createGenericConnPool(Upstream::ThreadLocalCluster& thread_local_cluster, bool is_connect,
+  createGenericConnPool(Upstream::ThreadLocalCluster& thread_local_cluster,
+                        GenericConnPoolFactory::UpstreamProtocol upstream_protocol,
                         const RouteEntry& route_entry,
                         absl::optional<Http::Protocol> downstream_protocol,
                         Upstream::LoadBalancerContext* ctx) const PURE;

@@ -9,8 +9,8 @@ namespace Envoy {
 namespace Quic {
 
 quic::QuicAsyncStatus EnvoyQuicProofVerifier::VerifyCertChain(
-    const std::string& hostname, const uint16_t port, const std::vector<std::string>& certs,
-    const std::string& ocsp_response, const std::string& cert_sct,
+    const std::string& hostname, const uint16_t /*port*/, const std::vector<std::string>& certs,
+    const std::string& /*ocsp_response*/, const std::string& /*cert_sct*/,
     const quic::ProofVerifyContext* context, std::string* error_details,
     std::unique_ptr<quic::ProofVerifyDetails>* details, uint8_t* out_alert,
     std::unique_ptr<quic::ProofVerifierCallback> callback) {
@@ -32,6 +32,7 @@ quic::QuicAsyncStatus EnvoyQuicProofVerifier::VerifyCertChain(
   return quic::QUIC_FAILURE;
 }
 
+#if 0  // old MAistra code in 2.5
 bool EnvoyQuicProofVerifier::doVerifyCertChain(
     const std::string& hostname, const uint16_t /*port*/, const std::vector<std::string>& certs,
     const std::string& /*ocsp_response*/, const std::string& /*cert_sct*/,
@@ -74,6 +75,7 @@ bool EnvoyQuicProofVerifier::doVerifyCertChain(
   *error_details = absl::StrCat("Leaf certificate doesn't match hostname: ", hostname);
   return false;
 }
+#endif  // if 0
 
 } // namespace Quic
 } // namespace Envoy

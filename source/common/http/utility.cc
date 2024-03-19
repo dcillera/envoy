@@ -17,6 +17,7 @@
 #include "source/common/common/fmt.h"
 #include "source/common/common/utility.h"
 #include "source/common/grpc/status.h"
+#include "source/common/http/character_set_validation.h"
 #include "source/common/http/exception.h"
 #include "source/common/http/header_map_impl.h"
 #include "source/common/http/headers.h"
@@ -31,6 +32,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/optional.h"
 #include "quiche/http2/adapter/http2_protocol.h"
 
 namespace Envoy {
@@ -460,9 +462,28 @@ void Utility::appendVia(RequestOrResponseHeaderMap& headers, const std::string& 
 
 void Utility::updateAuthority(RequestHeaderMap& headers, absl::string_view hostname,
                               const bool append_xfh) {
-  if (append_xfh && !headers.getHostValue().empty()) {
-    headers.appendForwardedHost(headers.getHostValue(), ",");
+  const auto host = headers.getHostValue();
+
+  if (Runtime::runtimeFeatureEnabled("envoy.reloadable_features.append_xfh_idempotent")) {
+    // Only append to x-forwarded-host if the value was not the last value appended.
+    const auto xfh = headers.getForwardedHostValue();
+
+    if (append_xfh && !host.empty()) {
+      if (!xfh.empty()) {
+        const auto xfh_split = StringUtil::splitToken(xfh, ",");
+        if (!xfh_split.empty() && xfh_split.back() != host) {
+          headers.appendForwardedHost(host, ",");
+        }
+      } else {
+        headers.appendForwardedHost(host, ",");
+      }
+    }
+  } else {
+    if (append_xfh && !host.empty()) {
+      headers.appendForwardedHost(host, ",");
+    }
   }
+
   headers.setHost(hostname);
 }
 
@@ -483,6 +504,16 @@ Utility::QueryParams Utility::parseQueryString(absl::string_view url) {
   return parseParameters(url, start, /*decode_params=*/false);
 }
 
+Utility::QueryParamsMulti Utility::QueryParamsMulti::parseQueryString(absl::string_view url) {
+  size_t start = url.find('?');
+  if (start == std::string::npos) {
+    return {};
+  }
+
+  start++;
+  return Utility::QueryParamsMulti::parseParameters(url, start, /*decode_params=*/false);
+}
+
 Utility::QueryParams Utility::parseAndDecodeQueryString(absl::string_view url) {
   size_t start = url.find('?');
   if (start == std::string::npos) {
@@ -492,6 +523,17 @@ Utility::QueryParams Utility::parseAndDecodeQueryString(absl::string_view url) {
 
   start++;
   return parseParameters(url, start, /*decode_params=*/true);
+}
+
+Utility::QueryParamsMulti
+Utility::QueryParamsMulti::parseAndDecodeQueryString(absl::string_view url) {
+  size_t start = url.find('?');
+  if (start == std::string::npos) {
+    return {};
+  }
+
+  start++;
+  return Utility::QueryParamsMulti::parseParameters(url, start, /*decode_params=*/true);
 }
 
 Utility::QueryParams Utility::parseFromBody(absl::string_view body) {
@@ -526,6 +568,57 @@ Utility::QueryParams Utility::parseParameters(absl::string_view data, size_t sta
   return params;
 }
 
+Utility::QueryParamsMulti Utility::QueryParamsMulti::parseParameters(absl::string_view data,
+                                                                     size_t start,
+                                                                     bool decode_params) {
+  QueryParamsMulti params;
+
+  while (start < data.size()) {
+    size_t end = data.find('&', start);
+    if (end == std::string::npos) {
+      end = data.size();
+    }
+    absl::string_view param(data.data() + start, end - start);
+
+    const size_t equal = param.find('=');
+    if (equal != std::string::npos) {
+      const auto param_name = StringUtil::subspan(data, start, start + equal);
+      const auto param_value = StringUtil::subspan(data, start + equal + 1, end);
+      params.add(decode_params ? PercentEncoding::decode(param_name) : param_name,
+                 decode_params ? PercentEncoding::decode(param_value) : param_value);
+    } else {
+      const auto param_name = StringUtil::subspan(data, start, end);
+      params.add(decode_params ? PercentEncoding::decode(param_name) : param_name, "");
+    }
+
+    start = end + 1;
+  }
+
+  return params;
+}
+
+void Utility::QueryParamsMulti::remove(absl::string_view key) { this->data_.erase(key); }
+
+void Utility::QueryParamsMulti::add(absl::string_view key, absl::string_view value) {
+  auto result = this->data_.emplace(std::string(key), std::vector<std::string>{std::string(value)});
+  if (!result.second) {
+    result.first->second.push_back(std::string(value));
+  }
+}
+
+void Utility::QueryParamsMulti::overwrite(absl::string_view key, absl::string_view value) {
+  this->data_[key] = std::vector<std::string>{std::string(value)};
+}
+
+absl::optional<std::string> Utility::QueryParamsMulti::getFirstValue(absl::string_view key) const {
+  auto it = this->data_.find(key);
+  if (it == this->data_.end()) {
+    return std::nullopt;
+  }
+
+  return absl::optional<std::string>{it->second.at(0)};
+}
+
 absl::string_view Utility::findQueryStringStart(const HeaderString& path) {
   absl::string_view path_str = path.getStringView();
   size_t query_offset = path_str.find('?');
@@ -539,8 +632,7 @@ absl::string_view Utility::findQueryStringStart(const HeaderString& path) {
 std::string Utility::stripQueryString(const HeaderString& path) {
   absl::string_view path_str = path.getStringView();
   size_t query_offset = path_str.find('?');
-  return std::string(path_str.data(),
-                     query_offset != path_str.npos ? query_offset : path_str.size());
+  return {path_str.data(), query_offset != path_str.npos ? query_offset : path_str.size()};
 }
 
 std::string Utility::replaceQueryString(const HeaderString& path,
@@ -550,6 +642,16 @@ std::string Utility::replaceQueryString(const HeaderString& path,
   if (!params.empty()) {
     const auto new_query_string = Http::Utility::queryParamsToString(params);
     absl::StrAppend(&new_path, new_query_string);
+  }
+
+  return new_path;
+}
+
+std::string Utility::QueryParamsMulti::replaceQueryString(const HeaderString& path) {
+  std::string new_path{Http::Utility::stripQueryString(path)};
+
+  if (!this->data_.empty()) {
+    absl::StrAppend(&new_path, this->toString());
   }
 
   return new_path;
@@ -566,7 +668,8 @@ std::string Utility::parseSetCookieValue(const Http::HeaderMap& headers, const s
 
 std::string Utility::makeSetCookieValue(const std::string& key, const std::string& value,
                                         const std::string& path, const std::chrono::seconds max_age,
-                                        bool httponly) {
+                                        bool httponly,
+                                        const Http::CookieAttributeRefVector attributes) {
   std::string cookie_value;
   // Best effort attempt to avoid numerous string copies.
   cookie_value.reserve(value.size() + path.size() + 30);
@@ -578,6 +681,15 @@ std::string Utility::makeSetCookieValue(const std::string& key, const std::strin
   if (!path.empty()) {
     absl::StrAppend(&cookie_value, "; Path=", path);
   }
+
+  for (auto const& attribute : attributes) {
+    if (attribute.get().value().empty()) {
+      absl::StrAppend(&cookie_value, "; ", attribute.get().name());
+    } else {
+      absl::StrAppend(&cookie_value, "; ", attribute.get().name(), "=", attribute.get().value());
+    }
+  }
+
   if (httponly) {
     absl::StrAppend(&cookie_value, "; HttpOnly");
   }
@@ -991,10 +1103,26 @@ std::string Utility::queryParamsToString(const QueryParams& params) {
   return out;
 }
 
+std::string Utility::QueryParamsMulti::toString() {
+  std::string out;
+  std::string delim = "?";
+  for (const auto& p : this->data_) {
+    for (const auto& v : p.second) {
+      absl::StrAppend(&out, delim, p.first, "=", v);
+      delim = "&";
+    }
+  }
+  return out;
+}
+
 const std::string Utility::resetReasonToString(const Http::StreamResetReason reset_reason) {
   switch (reset_reason) {
-  case Http::StreamResetReason::ConnectionFailure:
-    return "connection failure";
+  case Http::StreamResetReason::LocalConnectionFailure:
+    return "local connection failure";
+  case Http::StreamResetReason::RemoteConnectionFailure:
+    return "remote connection failure";
+  case Http::StreamResetReason::ConnectionTimeout:
+    return "connection timeout";
   case Http::StreamResetReason::ConnectionTermination:
     return "connection termination";
   case Http::StreamResetReason::LocalReset:
@@ -1149,7 +1277,7 @@ namespace {
 // %-encode all ASCII character codepoints, EXCEPT:
 // ALPHA | DIGIT | * | - | . | _
 // SPACE is encoded as %20, NOT as the + character
-constexpr uint32_t kUrlEncodedCharTable[] = {
+constexpr std::array<uint32_t, 8> kUrlEncodedCharTable = {
     // control characters
     0b11111111111111111111111111111111,
     // !"#$%&'()*+,-./0123456789:;<=>?
@@ -1165,7 +1293,7 @@ constexpr uint32_t kUrlEncodedCharTable[] = {
     0b11111111111111111111111111111111,
 };
 
-constexpr uint32_t kUrlDecodedCharTable[] = {
+constexpr std::array<uint32_t, 8> kUrlDecodedCharTable = {
     // control characters
     0b00000000000000000000000000000000,
     // !"#$%&'()*+,-./0123456789:;<=>?
@@ -1181,14 +1309,9 @@ constexpr uint32_t kUrlDecodedCharTable[] = {
     0b00000000000000000000000000000000,
 };
 
-bool testChar(const uint32_t table[8], char c) {
-  uint8_t uc = static_cast<uint8_t>(c);
-  return (table[uc >> 5] & (0x80000000 >> (uc & 0x1f))) != 0;
-}
+bool shouldPercentEncodeChar(char c) { return testCharInTable(kUrlEncodedCharTable, c); }
 
-bool shouldPercentEncodeChar(char c) { return testChar(kUrlEncodedCharTable, c); }
-
-bool shouldPercentDecodeChar(char c) { return testChar(kUrlDecodedCharTable, c); }
+bool shouldPercentDecodeChar(char c) { return testCharInTable(kUrlDecodedCharTable, c); }
 } // namespace
 
 std::string Utility::PercentEncoding::urlEncodeQueryParameter(absl::string_view value) {
@@ -1467,21 +1590,6 @@ bool Utility::isValidRefererValue(absl::string_view value) {
     return !(url.containsFragment() || url.containsUserinfo());
   }
 
-  constexpr uint32_t pathCharTable[] = {
-      // control characters
-      0b00000000000000000000000000000000,
-      // !"#$%&'()*+,-./0123456789:;<=>?
-      0b01001111111111111111111111110101,
-      //@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_
-      0b11111111111111111111111111100001,
-      //`abcdefghijklmnopqrstuvwxyz{|}~
-      0b01111111111111111111111111100010,
-      // extended ascii
-      0b00000000000000000000000000000000,
-      0b00000000000000000000000000000000,
-      0b00000000000000000000000000000000,
-      0b00000000000000000000000000000000,
-  };
   bool seen_slash = false;
 
   for (char c : value) {
@@ -1497,7 +1605,7 @@ bool Utility::isValidRefererValue(absl::string_view value) {
       seen_slash = true;
       continue;
     default:
-      if (!testChar(pathCharTable, c)) {
+      if (!testCharInTable(kUriQueryAndFragmentCharTable, c)) {
         return false;
       }
     }

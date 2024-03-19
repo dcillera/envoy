@@ -22,14 +22,17 @@ load(
     _envoy_select_admin_html = "envoy_select_admin_html",
     _envoy_select_admin_no_html = "envoy_select_admin_no_html",
     _envoy_select_boringssl = "envoy_select_boringssl",
+    _envoy_select_disable_exceptions = "envoy_select_disable_exceptions",
     _envoy_select_disable_logging = "envoy_select_disable_logging",
     _envoy_select_enable_http3 = "envoy_select_enable_http3",
     _envoy_select_enable_http_datagrams = "envoy_select_enable_http_datagrams",
+    _envoy_select_enable_yaml = "envoy_select_enable_yaml",
     _envoy_select_envoy_mobile_listener = "envoy_select_envoy_mobile_listener",
     _envoy_select_envoy_mobile_request_compression = "envoy_select_envoy_mobile_request_compression",
     _envoy_select_envoy_mobile_stats_reporting = "envoy_select_envoy_mobile_stats_reporting",
     _envoy_select_google_grpc = "envoy_select_google_grpc",
     _envoy_select_hot_restart = "envoy_select_hot_restart",
+    _envoy_select_signal_trace = "envoy_select_signal_trace",
     _envoy_select_static_extension_registration = "envoy_select_static_extension_registration",
     _envoy_select_wasm_cpp_tests = "envoy_select_wasm_cpp_tests",
     _envoy_select_wasm_rust_tests = "envoy_select_wasm_rust_tests",
@@ -97,6 +100,7 @@ def _envoy_directory_genrule_impl(ctx):
         outputs = [tree],
         command = "mkdir -p " + tree.path + " && " + ctx.expand_location(ctx.attr.cmd),
         env = {"GENRULE_OUTPUT_DIR": tree.path},
+        toolchain = None,
     )
     return [DefaultInfo(files = depset([tree]))]
 
@@ -202,7 +206,8 @@ def envoy_proto_descriptor(name, out, srcs = [], external_deps = []):
         include_paths.append("external/com_google_googleapis")
 
     if "well_known_protos" in external_deps:
-        srcs.append("@com_google_protobuf//:well_known_protos")
+        srcs.append("@com_google_protobuf//:well_known_type_protos")
+        srcs.append("@com_google_protobuf//:descriptor_proto_srcs")
         include_paths.append("external/com_google_protobuf/src")
 
     options = ["--include_imports"]
@@ -239,8 +244,11 @@ envoy_select_boringssl = _envoy_select_boringssl
 envoy_select_disable_logging = _envoy_select_disable_logging
 envoy_select_google_grpc = _envoy_select_google_grpc
 envoy_select_enable_http3 = _envoy_select_enable_http3
+envoy_select_enable_yaml = _envoy_select_enable_yaml
+envoy_select_disable_exceptions = _envoy_select_disable_exceptions
 envoy_select_hot_restart = _envoy_select_hot_restart
 envoy_select_enable_http_datagrams = _envoy_select_enable_http_datagrams
+envoy_select_signal_trace = _envoy_select_signal_trace
 envoy_select_wasm_cpp_tests = _envoy_select_wasm_cpp_tests
 envoy_select_wasm_rust_tests = _envoy_select_wasm_rust_tests
 envoy_select_wasm_v8 = _envoy_select_wasm_v8
